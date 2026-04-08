@@ -45,6 +45,29 @@ docker run --rm -p 5000:5000 pixelforge:latest
 
 Then open http://127.0.0.1:5000
 
+## Keyboard shortcuts
+
+- B: Brush
+- T: Text
+- V: Select
+- C: Crop
+- F: Fill
+- P: Color picker
+- L: Line
+- A: Arrow
+- R: Rectangle
+- E: Ellipse
+- S: Resize tool
+- Enter: Apply crop or selection move (when active)
+- Esc: Cancel crop or selection move (when active)
+- Delete / Backspace: Delete selected layer
+- Ctrl+Z: Undo
+- Ctrl+Y or Ctrl+Shift+Z: Redo
+
+Fill transparency tip:
+
+- In Fill mode, enable "Fill with transparency" to remove a background color region (uses tolerance).
+
 ## Run with Docker Compose
 
 Start the app:

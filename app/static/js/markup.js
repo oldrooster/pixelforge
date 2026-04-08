@@ -16,6 +16,9 @@
         ellipse: document.getElementById("tool-ellipse"),
         fill: document.getElementById("tool-fill"),
         picker: document.getElementById("tool-picker"),
+        crop: document.getElementById("tool-crop"),
+        select: document.getElementById("tool-select"),
+        resize: document.getElementById("tool-resize"),
     };
 
     var brushSettings = document.getElementById("brush-settings");
@@ -23,6 +26,9 @@
     var textSettings = document.getElementById("text-settings");
     var shapeSettings = document.getElementById("shape-settings");
     var pickerSettings = document.getElementById("picker-settings");
+    var cropSettings = document.getElementById("crop-settings");
+    var selectSettings = document.getElementById("select-settings");
+    var resizeSettings = document.getElementById("resize-settings");
     var toolContextTitle = document.getElementById("tool-context-title");
     var toolContextDescription = document.getElementById("tool-context-description");
 
@@ -33,6 +39,7 @@
     var fillColor = document.getElementById("fill-color");
     var fillTolerance = document.getElementById("fill-tolerance");
     var fillToleranceLabel = document.getElementById("fill-tolerance-label");
+    var fillTransparentEnabled = document.getElementById("fill-transparent-enabled");
 
     var textColor = document.getElementById("text-color");
     var fontFamily = document.getElementById("font-family");
@@ -47,6 +54,18 @@
     var shapeFillEnabled = document.getElementById("shape-fill-enabled");
     var shapeFillColor = document.getElementById("shape-fill-color");
     var pickerColorPreview = document.getElementById("picker-color-preview");
+    var cropSizeLabel = document.getElementById("crop-size-label");
+    var cropApplyBtn = document.getElementById("crop-apply-btn");
+    var cropCancelBtn = document.getElementById("crop-cancel-btn");
+
+    var selectionSizeLabel = document.getElementById("selection-size-label");
+    var selectionApplyBtn = document.getElementById("selection-apply-btn");
+    var selectionCancelBtn = document.getElementById("selection-cancel-btn");
+
+    var resizeWidth = document.getElementById("resize-width");
+    var resizeHeight = document.getElementById("resize-height");
+    var resizeLockAspect = document.getElementById("resize-lock-aspect");
+    var resizeApplyBtn = document.getElementById("resize-apply-btn");
 
     var layersPanel = document.getElementById("layers-panel");
     var undoBtn = document.getElementById("undo-btn");
@@ -69,12 +88,54 @@
     var isDragging = false;
     var dragOffset = { x: 0, y: 0 };
 
+    var cropRect = null;
+    var selectionRect = null;
+    var floatingSelection = null;
+    var selectionBackground = null;
+    var isMovingSelection = false;
+    var selectionDragOffset = { x: 0, y: 0 };
+    var resizeAspectRatio = 1;
+
     var activeBrushCanvas = null;
     var activeBrushCtx = null;
 
     var undoStack = [];
     var redoStack = [];
     var MAX_UNDO = 50;
+
+    var toolPanels = [brushSettings, fillSettings, textSettings, shapeSettings, pickerSettings, cropSettings, selectSettings, resizeSettings];
+    toolPanels.forEach(function (panel) {
+        panel.classList.add("tool-panel");
+    });
+
+    function animatePanelEntry(panel) {
+        panel.classList.remove("panel-enter");
+        void panel.offsetWidth;
+        panel.classList.add("panel-enter");
+    }
+
+    function setPanelVisible(panel, shouldShow) {
+        var isVisible = !panel.hidden;
+        if (shouldShow) {
+            panel.hidden = false;
+            if (!isVisible) {
+                animatePanelEntry(panel);
+            }
+            return;
+        }
+        panel.hidden = true;
+        panel.classList.remove("panel-enter");
+    }
+
+    function animateContextRefresh() {
+        var header = toolContextTitle.parentElement;
+        if (!header) {
+            return;
+        }
+        header.classList.remove("context-refresh");
+        void header.offsetWidth;
+        header.classList.add("context-refresh");
+    }
 
     function updateShapeFillVisibility() {
         shapeFillColor.hidden = !shapeFillEnabled.checked || shapeFillToggleWrap.hidden;
@@ -84,11 +145,14 @@
         var isShapeTool = ["line", "arrow", "rect", "ellipse"].indexOf(activeTool) >= 0;
         var supportsShapeFill = ["rect", "ellipse"].indexOf(activeTool) >= 0;
 
-        brushSettings.hidden = activeTool !== "brush";
-        fillSettings.hidden = activeTool !== "fill";
-        textSettings.hidden = activeTool !== "text";
-        shapeSettings.hidden = !isShapeTool;
-        pickerSettings.hidden = activeTool !== "picker";
+        setPanelVisible(brushSettings, activeTool === "brush");
+        setPanelVisible(fillSettings, activeTool === "fill");
+        setPanelVisible(textSettings, activeTool === "text");
+        setPanelVisible(shapeSettings, isShapeTool);
+        setPanelVisible(pickerSettings, activeTool === "picker");
+        setPanelVisible(cropSettings, activeTool === "crop");
+        setPanelVisible(selectSettings, activeTool === "select");
+        setPanelVisible(resizeSettings, activeTool === "resize");
 
         shapeColorLabel.textContent = (activeTool === "line" || activeTool === "arrow") ? "Line color" : "Stroke color";
         shapeFillToggleWrap.hidden = !supportsShapeFill;
@@ -118,10 +182,21 @@
         } else if (activeTool === "ellipse") {
             toolContextTitle.textContent = "Ellipse controls";
             toolContextDescription.textContent = "Drag to draw an ellipse, optionally with fill.";
+        } else if (activeTool === "crop") {
+            toolContextTitle.textContent = "Crop controls";
+            toolContextDescription.textContent = "Drag to define a crop area, then apply crop.";
+        } else if (activeTool === "select") {
+            toolContextTitle.textContent = "Select controls";
+            toolContextDescription.textContent = "Select an area and drag it to move.";
+        } else if (activeTool === "resize") {
+            toolContextTitle.textContent = "Resize controls";
+            toolContextDescription.textContent = "Set target width and height, then apply resize.";
         } else {
             toolContextTitle.textContent = "Picker controls";
             toolContextDescription.textContent = "Sample a color and return to your previous tool.";
         }
+
+        animateContextRefresh();
 
         canvas.style.cursor = activeTool === "text" ? "text" : "crosshair";
     }
@@ -141,10 +216,14 @@
         undoStack = [];
         redoStack = [];
 
+        clearCropState();
+        clearSelectionState();
+
         render();
         pushUndo();
         renderLayersPanel();
         updateHistoryButtons();
+        syncResizeInputs();
 
         emptyState.hidden = true;
         canvasWrap.hidden = false;
@@ -170,6 +249,13 @@
     function setTool(tool) {
         if (!toolButtons[tool]) {
             return;
+        }
+
+        if (activeTool === "crop" && tool !== "crop") {
+            clearCropState();
+        }
+        if (activeTool === "select" && tool !== "select") {
+            clearSelectionState();
         }
 
         if (tool !== "picker") {
@@ -215,6 +301,209 @@
             x: (event.clientX - rect.left) * (canvas.width / rect.width),
             y: (event.clientY - rect.top) * (canvas.height / rect.height),
         };
+    }
+
+    function normalizeRect(x1, y1, x2, y2) {
+        var x = Math.min(x1, x2);
+        var y = Math.min(y1, y2);
+        return {
+            x: x,
+            y: y,
+            w: Math.abs(x2 - x1),
+            h: Math.abs(y2 - y1),
+        };
+    }
+
+    function clampRectToCanvas(rect) {
+        if (!rect) {
+            return null;
+        }
+        var x = Math.max(0, Math.floor(rect.x));
+        var y = Math.max(0, Math.floor(rect.y));
+        var maxW = canvas.width - x;
+        var maxH = canvas.height - y;
+        return {
+            x: x,
+            y: y,
+            w: Math.min(Math.floor(rect.w), Math.max(0, maxW)),
+            h: Math.min(Math.floor(rect.h), Math.max(0, maxH)),
+        };
+    }
+
+    function syncResizeInputs() {
+        if (!originalImage) {
+            return;
+        }
+        resizeWidth.value = canvas.width;
+        resizeHeight.value = canvas.height;
+        resizeAspectRatio = canvas.width / canvas.height;
+    }
+
+    function buildCompositeCanvas() {
+        var out = document.createElement("canvas");
+        out.width = canvas.width;
+        out.height = canvas.height;
+        var octx = out.getContext("2d");
+        octx.drawImage(originalImage, 0, 0);
+
+        layers.forEach(function (layer) {
+            drawLayer(octx, layer);
+        });
+
+        return out;
+    }
+
+    function replaceWithRasterCanvas(newCanvas) {
+        var img = new Image();
+        img.onload = function () {
+            originalImage = img;
+            canvas.width = img.width;
+            canvas.height = img.height;
+
+            activeBrushCanvas = document.createElement("canvas");
+            activeBrushCanvas.width = img.width;
+            activeBrushCanvas.height = img.height;
+            activeBrushCtx = activeBrushCanvas.getContext("2d");
+
+            layers = [];
+            selectedLayerIndex = -1;
+            clearCropState();
+            clearSelectionState();
+            render();
+            renderLayersPanel();
+            syncResizeInputs();
+            pushUndo();
+        };
+        img.src = newCanvas.toDataURL("image/png");
+    }
+
+    function clearCropState() {
+        cropRect = null;
+        cropSizeLabel.textContent = "0 x 0";
+    }
+
+    function clearSelectionState() {
+        selectionRect = null;
+        floatingSelection = null;
+        selectionBackground = null;
+        isMovingSelection = false;
+        selectionSizeLabel.textContent = "0 x 0";
+    }
+
+    function updateCropLabel(rect) {
+        if (!rect) {
+            cropSizeLabel.textContent = "0 x 0";
+            return;
+        }
+        cropSizeLabel.textContent = Math.floor(rect.w) + " x " + Math.floor(rect.h);
+    }
+
+    function updateSelectionLabel(rect) {
+        if (!rect) {
+            selectionSizeLabel.textContent = "0 x 0";
+            return;
+        }
+        selectionSizeLabel.textContent = Math.floor(rect.w) + " x " + Math.floor(rect.h);
+    }
+
+    function drawOverlayRect(rect, color) {
+        if (!rect || rect.w <= 0 || rect.h <= 0) {
+            return;
+        }
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.restore();
+    }
+
+    function pointInRect(x, y, rect) {
+        return rect && x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+    }
+
+    function applyCrop() {
+        if (!originalImage || !cropRect) {
+            return;
+        }
+        var rect = clampRectToCanvas(cropRect);
+        if (!rect || rect.w < 2 || rect.h < 2) {
+            return;
+        }
+        var source = buildCompositeCanvas();
+        var out = document.createElement("canvas");
+        out.width = rect.w;
+        out.height = rect.h;
+        out.getContext("2d").drawImage(source, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+        replaceWithRasterCanvas(out);
+    }
+
+    function createFloatingSelection(rect) {
+        var clamped = clampRectToCanvas(rect);
+        if (!clamped || clamped.w < 2 || clamped.h < 2) {
+            return;
+        }
+        var source = buildCompositeCanvas();
+
+        var patch = document.createElement("canvas");
+        patch.width = clamped.w;
+        patch.height = clamped.h;
+        patch.getContext("2d").drawImage(source, clamped.x, clamped.y, clamped.w, clamped.h, 0, 0, clamped.w, clamped.h);
+
+        selectionBackground = document.createElement("canvas");
+        selectionBackground.width = canvas.width;
+        selectionBackground.height = canvas.height;
+        var bctx = selectionBackground.getContext("2d");
+        bctx.drawImage(source, 0, 0);
+        bctx.clearRect(clamped.x, clamped.y, clamped.w, clamped.h);
+
+        floatingSelection = {
+            canvas: patch,
+            x: clamped.x,
+            y: clamped.y,
+            w: clamped.w,
+            h: clamped.h,
+        };
+        selectionRect = {
+            x: floatingSelection.x,
+            y: floatingSelection.y,
+            w: floatingSelection.w,
+            h: floatingSelection.h,
+        };
+        updateSelectionLabel(selectionRect);
+    }
+
+    function applySelectionMove() {
+        if (!floatingSelection || !selectionBackground) {
+            return;
+        }
+        var out = document.createElement("canvas");
+        out.width = canvas.width;
+        out.height = canvas.height;
+        var octx = out.getContext("2d");
+        octx.drawImage(selectionBackground, 0, 0);
+        octx.drawImage(floatingSelection.canvas, Math.round(floatingSelection.x), Math.round(floatingSelection.y));
+        replaceWithRasterCanvas(out);
+    }
+
+    function applyResize() {
+        if (!originalImage) {
+            return;
+        }
+        var w = parseInt(resizeWidth.value, 10);
+        var h = parseInt(resizeHeight.value, 10);
+        if (!w || !h || w < 1 || h < 1) {
+            return;
+        }
+        var source = buildCompositeCanvas();
+        var out = document.createElement("canvas");
+        out.width = w;
+        out.height = h;
+        var octx = out.getContext("2d");
+        octx.imageSmoothingEnabled = true;
+        octx.imageSmoothingQuality = "high";
+        octx.drawImage(source, 0, 0, w, h);
+        replaceWithRasterCanvas(out);
     }
 
     function drawArrow(c, x1, y1, x2, y2, color, width) {
@@ -369,17 +658,30 @@
         }
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(originalImage, 0, 0);
+        if (floatingSelection && selectionBackground) {
+            ctx.drawImage(selectionBackground, 0, 0);
+            ctx.drawImage(floatingSelection.canvas, Math.round(floatingSelection.x), Math.round(floatingSelection.y));
+            drawOverlayRect({ x: floatingSelection.x, y: floatingSelection.y, w: floatingSelection.w, h: floatingSelection.h }, "#35d07f");
+        } else {
+            ctx.drawImage(originalImage, 0, 0);
 
-        layers.forEach(function (layer, idx) {
-            drawLayer(ctx, layer);
-            if (idx === selectedLayerIndex) {
-                renderSelection(layer);
-            }
-        });
+            layers.forEach(function (layer, idx) {
+                drawLayer(ctx, layer);
+                if (idx === selectedLayerIndex) {
+                    renderSelection(layer);
+                }
+            });
+        }
 
         if (isDrawing && activeTool === "brush" && activeBrushCanvas) {
             ctx.drawImage(activeBrushCanvas, 0, 0);
+        }
+
+        if (activeTool === "crop" && cropRect) {
+            drawOverlayRect(cropRect, "#ffd166");
+        }
+        if (activeTool === "select" && selectionRect && !floatingSelection) {
+            drawOverlayRect(selectionRect, "#35d07f");
         }
     }
 
@@ -455,8 +757,9 @@
         var fillR = parseInt(hex.substr(1, 2), 16);
         var fillG = parseInt(hex.substr(3, 2), 16);
         var fillB = parseInt(hex.substr(5, 2), 16);
+        var fillA = fillTransparentEnabled.checked ? 0 : 255;
 
-        if (startR === fillR && startG === fillG && startB === fillB && startA === 255) {
+        if (startR === fillR && startG === fillG && startB === fillB && startA === fillA) {
             return;
         }
 
@@ -487,7 +790,7 @@
                 outData[i] = fillR;
                 outData[i + 1] = fillG;
                 outData[i + 2] = fillB;
-                outData[i + 3] = 255;
+                outData[i + 3] = fillA;
 
                 if (cx > 0 && !visited[p - 1]) {
                     visited[p - 1] = 1;
@@ -566,6 +869,7 @@
 
             render();
             renderLayersPanel();
+            syncResizeInputs();
         };
         img.src = snap.original.toDataURL();
     }
@@ -576,15 +880,7 @@
     }
 
     function flattenToBlob() {
-        var out = document.createElement("canvas");
-        out.width = canvas.width;
-        out.height = canvas.height;
-        var octx = out.getContext("2d");
-
-        octx.drawImage(originalImage, 0, 0);
-        layers.forEach(function (layer) {
-            drawLayer(octx, layer);
-        });
+        var out = buildCompositeCanvas();
 
         return new Promise(function (resolve) {
             out.toBlob(resolve, "image/png");
@@ -685,6 +981,31 @@
         }
         var pos = getCanvasPos(event);
 
+        if (activeTool === "crop") {
+            dragStart = { x: pos.x, y: pos.y };
+            lastMousePos = pos;
+            cropRect = null;
+            updateCropLabel(cropRect);
+            render();
+            return;
+        }
+
+        if (activeTool === "select") {
+            if (floatingSelection && pointInRect(pos.x, pos.y, floatingSelection)) {
+                isMovingSelection = true;
+                selectionDragOffset = { x: pos.x - floatingSelection.x, y: pos.y - floatingSelection.y };
+                return;
+            }
+            dragStart = { x: pos.x, y: pos.y };
+            lastMousePos = pos;
+            selectionRect = null;
+            floatingSelection = null;
+            selectionBackground = null;
+            updateSelectionLabel(selectionRect);
+            render();
+            return;
+        }
+
         if (activeTool === "picker") {
             var px = Math.round(pos.x);
             var py = Math.round(pos.y);
@@ -781,6 +1102,35 @@
         var pos = getCanvasPos(event);
         lastMousePos = pos;
 
+        if (activeTool === "crop" && dragStart) {
+            cropRect = normalizeRect(dragStart.x, dragStart.y, pos.x, pos.y);
+            updateCropLabel(cropRect);
+            render();
+            return;
+        }
+
+        if (activeTool === "select") {
+            if (isMovingSelection && floatingSelection) {
+                floatingSelection.x = pos.x - selectionDragOffset.x;
+                floatingSelection.y = pos.y - selectionDragOffset.y;
+                selectionRect = {
+                    x: floatingSelection.x,
+                    y: floatingSelection.y,
+                    w: floatingSelection.w,
+                    h: floatingSelection.h,
+                };
+                updateSelectionLabel(selectionRect);
+                render();
+                return;
+            }
+            if (dragStart) {
+                selectionRect = normalizeRect(dragStart.x, dragStart.y, pos.x, pos.y);
+                updateSelectionLabel(selectionRect);
+                render();
+                return;
+            }
+        }
+
         if (activeTool === "brush" && isDrawing) {
             activeBrushCtx.beginPath();
             activeBrushCtx.moveTo(lastX, lastY);
@@ -834,6 +1184,32 @@
             return;
         }
 
+        if (activeTool === "crop" && dragStart && lastMousePos) {
+            cropRect = normalizeRect(dragStart.x, dragStart.y, lastMousePos.x, lastMousePos.y);
+            dragStart = null;
+            updateCropLabel(cropRect);
+            render();
+            return;
+        }
+
+        if (activeTool === "select") {
+            if (isMovingSelection) {
+                isMovingSelection = false;
+                return;
+            }
+            if (dragStart && lastMousePos) {
+                selectionRect = normalizeRect(dragStart.x, dragStart.y, lastMousePos.x, lastMousePos.y);
+                if (selectionRect.w > 3 && selectionRect.h > 3) {
+                    createFloatingSelection(selectionRect);
+                }
+                dragStart = null;
+                render();
+                return;
+            }
+            dragStart = null;
+            return;
+        }
+
         if (isDrawing && activeTool === "brush") {
             isDrawing = false;
             layers.push({
@@ -870,13 +1246,119 @@
     });
 
     document.addEventListener("keydown", function (event) {
+        var tagName = event.target && event.target.tagName ? event.target.tagName : "";
+        var isTypingTarget = tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT" || event.target.isContentEditable;
+        if (isTypingTarget) {
+            return;
+        }
+
+        if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "z") {
+            event.preventDefault();
+            undoBtn.click();
+            return;
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+            event.preventDefault();
+            redoBtn.click();
+            return;
+        }
+        if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "z") {
+            event.preventDefault();
+            redoBtn.click();
+            return;
+        }
+
+        var key = event.key.toLowerCase();
+
+        if (key === "b") {
+            setTool("brush");
+            event.preventDefault();
+            return;
+        }
+        if (key === "t") {
+            setTool("text");
+            event.preventDefault();
+            return;
+        }
+        if (key === "v") {
+            setTool("select");
+            event.preventDefault();
+            return;
+        }
+        if (key === "c") {
+            setTool("crop");
+            event.preventDefault();
+            return;
+        }
+        if (key === "f") {
+            setTool("fill");
+            event.preventDefault();
+            return;
+        }
+        if (key === "p") {
+            setTool("picker");
+            event.preventDefault();
+            return;
+        }
+        if (key === "l") {
+            setTool("line");
+            event.preventDefault();
+            return;
+        }
+        if (key === "a") {
+            setTool("arrow");
+            event.preventDefault();
+            return;
+        }
+        if (key === "r") {
+            setTool("rect");
+            event.preventDefault();
+            return;
+        }
+        if (key === "e") {
+            setTool("ellipse");
+            event.preventDefault();
+            return;
+        }
+        if (key === "s") {
+            setTool("resize");
+            event.preventDefault();
+            return;
+        }
+
         if (!originalImage) {
             return;
         }
-        if (event.key !== "Delete" && event.key !== "Backspace") {
-            return;
+
+        if (event.key === "Enter") {
+            if (activeTool === "crop" && cropRect) {
+                applyCrop();
+                event.preventDefault();
+                return;
+            }
+            if (activeTool === "select" && floatingSelection) {
+                applySelectionMove();
+                event.preventDefault();
+                return;
+            }
         }
-        if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA" || event.target.tagName === "SELECT") {
+
+        if (event.key === "Escape") {
+            if (activeTool === "crop" && cropRect) {
+                clearCropState();
+                render();
+                event.preventDefault();
+                return;
+            }
+            if (activeTool === "select" && (selectionRect || floatingSelection)) {
+                clearSelectionState();
+                render();
+                event.preventDefault();
+                return;
+            }
+        }
+
+        if (event.key !== "Delete" && event.key !== "Backspace") {
             return;
         }
         if (selectedLayerIndex < 0) {
@@ -920,6 +1402,50 @@
         render();
         renderLayersPanel();
         pushUndo();
+    });
+
+    cropApplyBtn.addEventListener("click", function () {
+        applyCrop();
+    });
+
+    cropCancelBtn.addEventListener("click", function () {
+        clearCropState();
+        render();
+    });
+
+    selectionApplyBtn.addEventListener("click", function () {
+        applySelectionMove();
+    });
+
+    selectionCancelBtn.addEventListener("click", function () {
+        clearSelectionState();
+        render();
+    });
+
+    resizeWidth.addEventListener("input", function () {
+        if (!resizeLockAspect.checked || !resizeAspectRatio || !originalImage) {
+            return;
+        }
+        var w = parseInt(resizeWidth.value, 10);
+        if (!w || w < 1) {
+            return;
+        }
+        resizeHeight.value = String(Math.max(1, Math.round(w / resizeAspectRatio)));
+    });
+
+    resizeHeight.addEventListener("input", function () {
+        if (!resizeLockAspect.checked || !resizeAspectRatio || !originalImage) {
+            return;
+        }
+        var h = parseInt(resizeHeight.value, 10);
+        if (!h || h < 1) {
+            return;
+        }
+        resizeWidth.value = String(Math.max(1, Math.round(h * resizeAspectRatio)));
+    });
+
+    resizeApplyBtn.addEventListener("click", function () {
+        applyResize();
     });
 
     downloadBtn.addEventListener("click", async function () {

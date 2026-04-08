@@ -38,6 +38,9 @@
                     <button id="tool-ellipse" class="btn btn-small">Ellipse</button>
                     <button id="tool-fill" class="btn btn-small">Fill</button>
                     <button id="tool-picker" class="btn btn-small">Picker</button>
+                    <button id="tool-crop" class="btn btn-small">Crop</button>
+                    <button id="tool-select" class="btn btn-small">Select</button>
+                    <button id="tool-resize" class="btn btn-small">Resize</button>
                 </div>
             </div>
 
@@ -58,6 +61,7 @@
                 <input id="fill-color" type="color" value="#ff4d6d">
                 <label>Tolerance <span id="fill-tolerance-label">30</span></label>
                 <input id="fill-tolerance" type="range" min="0" max="128" value="30">
+                <label><input id="fill-transparent-enabled" type="checkbox"> Fill with transparency</label>
             </div>
 
             <div id="text-settings" class="setting-group" hidden>
@@ -86,6 +90,34 @@
                 <label>Sampled color</label>
                 <input id="picker-color-preview" type="color" value="#ff4d6d" disabled>
                 <div class="hint compact-hint">Click on the image to pick a color. The picker returns to your previous tool.</div>
+            </div>
+
+            <div id="crop-settings" class="setting-group" hidden>
+                <div class="hint compact-hint">Drag to define a crop area, then apply.</div>
+                <label>Crop size <span id="crop-size-label">0 x 0</span></label>
+                <div class="row-buttons">
+                    <button id="crop-apply-btn" class="btn btn-small">Apply Crop</button>
+                    <button id="crop-cancel-btn" class="btn btn-small">Cancel</button>
+                </div>
+            </div>
+
+            <div id="select-settings" class="setting-group" hidden>
+                <div class="hint compact-hint">Drag to select an area, then drag it to move.</div>
+                <label>Selection size <span id="selection-size-label">0 x 0</span></label>
+                <div class="row-buttons">
+                    <button id="selection-apply-btn" class="btn btn-small">Apply Move</button>
+                    <button id="selection-cancel-btn" class="btn btn-small">Cancel</button>
+                </div>
+            </div>
+
+            <div id="resize-settings" class="setting-group" hidden>
+                <label>Resize image</label>
+                <label>Width</label>
+                <input id="resize-width" type="number" min="1" step="1" value="0">
+                <label>Height</label>
+                <input id="resize-height" type="number" min="1" step="1" value="0">
+                <label><input id="resize-lock-aspect" type="checkbox" checked> Lock aspect ratio</label>
+                <button id="resize-apply-btn" class="btn btn-small">Apply Resize</button>
             </div>
 
             <hr>
