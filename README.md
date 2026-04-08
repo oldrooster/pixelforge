@@ -1,0 +1,61 @@
+# PixelForge
+
+PixelForge is a standalone image markup tool extracted from SpriteForge.
+
+## Included in this initial cut
+
+- Load image from disk or drag and drop
+- Markup tools: brush, text, line, arrow, rectangle, ellipse, flood fill, color picker
+- Layer list with selection, reorder, and delete
+- Undo and redo history
+- Download flattened PNG
+
+## Not yet included
+
+- SpriteForge project library integration
+- AI inpaint workflow
+- Asset save and overwrite API endpoints
+
+## Run locally
+
+```bash
+cd /home/mrmanager/pixelforge
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m flask --app app.main:app run --debug
+```
+
+Open http://127.0.0.1:5000
+
+## Run with Docker
+
+Build the image:
+
+```bash
+cd /home/mrmanager/pixelforge
+docker build -t pixelforge:latest .
+```
+
+Run the container:
+
+```bash
+docker run --rm -p 5000:5000 pixelforge:latest
+```
+
+Then open http://127.0.0.1:5000
+
+## Run with Docker Compose
+
+Start the app:
+
+```bash
+cd /home/mrmanager/pixelforge
+docker compose up --build
+```
+
+Stop and remove the container:
+
+```bash
+docker compose down
+```

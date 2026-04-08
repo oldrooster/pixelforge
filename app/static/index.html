@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PixelForge</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header class="app-header">
+        <h1>PixelForge</h1>
+        <div class="header-actions">
+            <label class="btn btn-primary" for="image-input">Load Image</label>
+            <input id="image-input" type="file" accept=".png,.jpg,.jpeg,.webp" hidden>
+            <button id="download-btn" class="btn btn-secondary" disabled>Download PNG</button>
+        </div>
+    </header>
+
+    <main class="markup-layout">
+        <section class="canvas-area">
+            <div id="empty-state" class="dropzone">
+                <p>Drop an image here or use Load Image</p>
+            </div>
+            <div id="canvas-wrap" hidden>
+                <canvas id="markup-canvas"></canvas>
+            </div>
+        </section>
+
+        <aside class="settings">
+            <div class="setting-group">
+                <label>Tool</label>
+                <div class="tool-grid">
+                    <button id="tool-brush" class="btn btn-small active">Brush</button>
+                    <button id="tool-text" class="btn btn-small">Text</button>
+                    <button id="tool-line" class="btn btn-small">Line</button>
+                    <button id="tool-arrow" class="btn btn-small">Arrow</button>
+                    <button id="tool-rect" class="btn btn-small">Rect</button>
+                    <button id="tool-ellipse" class="btn btn-small">Ellipse</button>
+                    <button id="tool-fill" class="btn btn-small">Fill</button>
+                    <button id="tool-picker" class="btn btn-small">Picker</button>
+                </div>
+            </div>
+
+            <div class="setting-group tool-context-header">
+                <label id="tool-context-title">Brush controls</label>
+                <div id="tool-context-description" class="hint compact-hint">Draw freehand strokes on a new layer.</div>
+            </div>
+
+            <div id="brush-settings" class="setting-group">
+                <label>Brush color</label>
+                <input id="brush-color" type="color" value="#ff4d6d">
+                <label>Brush size <span id="brush-size-label">4</span>px</label>
+                <input id="brush-size" type="range" min="1" max="40" value="4">
+            </div>
+
+            <div id="fill-settings" class="setting-group" hidden>
+                <label>Fill color</label>
+                <input id="fill-color" type="color" value="#ff4d6d">
+                <label>Tolerance <span id="fill-tolerance-label">30</span></label>
+                <input id="fill-tolerance" type="range" min="0" max="128" value="30">
+            </div>
+
+            <div id="text-settings" class="setting-group" hidden>
+                <label>Text color</label>
+                <input id="text-color" type="color" value="#ff4d6d">
+                <label>Font</label>
+                <select id="font-family">
+                    <option value="sans-serif">Sans serif</option>
+                    <option value="serif">Serif</option>
+                    <option value="monospace">Monospace</option>
+                </select>
+                <label>Font size <span id="font-size-label">16</span>px</label>
+                <input id="font-size" type="range" min="8" max="72" value="16">
+            </div>
+
+            <div id="shape-settings" class="setting-group" hidden>
+                <label id="shape-color-label">Stroke color</label>
+                <input id="shape-color" type="color" value="#ff4d6d">
+                <label>Stroke width <span id="stroke-size-label">3</span>px</label>
+                <input id="stroke-size" type="range" min="1" max="20" value="3">
+                <label id="shape-fill-toggle-wrap"><input id="shape-fill-enabled" type="checkbox"> Fill shape</label>
+                <input id="shape-fill-color" type="color" value="#ffb3c1">
+            </div>
+
+            <div id="picker-settings" class="setting-group" hidden>
+                <label>Sampled color</label>
+                <input id="picker-color-preview" type="color" value="#ff4d6d" disabled>
+                <div class="hint compact-hint">Click on the image to pick a color. The picker returns to your previous tool.</div>
+            </div>
+
+            <hr>
+            <div class="setting-group">
+                <label>Layers</label>
+                <div id="layers-panel" class="layers-panel">
+                    <div class="hint">No layers yet</div>
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <label>History</label>
+                <div class="row-buttons">
+                    <button id="undo-btn" class="btn btn-small" disabled>Undo</button>
+                    <button id="redo-btn" class="btn btn-small" disabled>Redo</button>
+                </div>
+                <button id="clear-btn" class="btn btn-small">Clear Layers</button>
+            </div>
+        </aside>
+    </main>
+
+    <script src="/static/js/markup.js"></script>
+</body>
+</html>
