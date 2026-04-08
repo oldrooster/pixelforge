@@ -6,6 +6,8 @@ PixelForge is a standalone image markup tool extracted from SpriteForge.
 
 - Load image from disk or drag and drop
 - Markup tools: brush, text, line, arrow, rectangle, ellipse, flood fill, color picker
+- Transparency tool: region transparency fill with optional edge detection
+- AI background removal via rembg
 - Layer list with selection, reorder, and delete
 - Undo and redo history
 - Download flattened PNG
@@ -58,15 +60,18 @@ Then open http://127.0.0.1:5000
 - R: Rectangle
 - E: Ellipse
 - S: Resize tool
+- X: Transparency tool
 - Enter: Apply crop or selection move (when active)
 - Esc: Cancel crop or selection move (when active)
 - Delete / Backspace: Delete selected layer
 - Ctrl+Z: Undo
 - Ctrl+Y or Ctrl+Shift+Z: Redo
 
-Fill transparency tip:
+Transparency tool tip:
 
-- In Fill mode, enable "Fill with transparency" to remove a background color region (uses tolerance).
+- Choose Region fill to click an area and make it transparent.
+- Enable Edge detection to better preserve boundaries.
+- Choose AI background removal to use rembg on the current image.
 
 ## Run with Docker Compose
 

@@ -19,6 +19,7 @@
         crop: document.getElementById("tool-crop"),
         select: document.getElementById("tool-select"),
         resize: document.getElementById("tool-resize"),
+        transparency: document.getElementById("tool-transparency"),
     };
 
     var brushSettings = document.getElementById("brush-settings");
@@ -29,6 +30,7 @@
     var cropSettings = document.getElementById("crop-settings");
     var selectSettings = document.getElementById("select-settings");
     var resizeSettings = document.getElementById("resize-settings");
+    var transparencySettings = document.getElementById("transparency-settings");
     var toolContextTitle = document.getElementById("tool-context-title");
     var toolContextDescription = document.getElementById("tool-context-description");
 
@@ -39,7 +41,6 @@
     var fillColor = document.getElementById("fill-color");
     var fillTolerance = document.getElementById("fill-tolerance");
     var fillToleranceLabel = document.getElementById("fill-tolerance-label");
-    var fillTransparentEnabled = document.getElementById("fill-transparent-enabled");
 
     var textColor = document.getElementById("text-color");
     var fontFamily = document.getElementById("font-family");
@@ -66,6 +67,17 @@
     var resizeHeight = document.getElementById("resize-height");
     var resizeLockAspect = document.getElementById("resize-lock-aspect");
     var resizeApplyBtn = document.getElementById("resize-apply-btn");
+
+    var transparencyMethodRadios = Array.prototype.slice.call(document.querySelectorAll("input[name='transparency-method']"));
+    var transparencyRegionControls = document.getElementById("transparency-region-controls");
+    var transparencyAiControls = document.getElementById("transparency-ai-controls");
+    var transparencyTolerance = document.getElementById("transparency-tolerance");
+    var transparencyToleranceLabel = document.getElementById("transparency-tolerance-label");
+    var transparencyEdgeDetect = document.getElementById("transparency-edge-detect");
+    var transparencyEdgeThreshold = document.getElementById("transparency-edge-threshold");
+    var transparencyEdgeThresholdLabel = document.getElementById("transparency-edge-threshold-label");
+    var transparencyAiApplyBtn = document.getElementById("transparency-ai-apply-btn");
+    var transparencyAiStatus = document.getElementById("transparency-ai-status");
 
     var layersPanel = document.getElementById("layers-panel");
     var undoBtn = document.getElementById("undo-btn");
@@ -102,8 +114,9 @@
     var undoStack = [];
     var redoStack = [];
     var MAX_UNDO = 50;
+    var isAiRemovalRunning = false;
 
-    var toolPanels = [brushSettings, fillSettings, textSettings, shapeSettings, pickerSettings, cropSettings, selectSettings, resizeSettings];
+    var toolPanels = [brushSettings, fillSettings, textSettings, shapeSettings, pickerSettings, cropSettings, selectSettings, resizeSettings, transparencySettings];
     toolPanels.forEach(function (panel) {
         panel.classList.add("tool-panel");
     });
@@ -141,6 +154,38 @@
         shapeFillColor.hidden = !shapeFillEnabled.checked || shapeFillToggleWrap.hidden;
     }
 
+    function updateTransparencyMethodUI() {
+        var isRegion = getTransparencyMethod() === "region";
+        transparencyRegionControls.hidden = !isRegion;
+        transparencyAiControls.hidden = isRegion;
+    }
+
+    function getTransparencyMethod() {
+        for (var i = 0; i < transparencyMethodRadios.length; i++) {
+            if (transparencyMethodRadios[i].checked) {
+                return transparencyMethodRadios[i].value;
+            }
+        }
+        return "region";
+    }
+
+    function setAiStatus(message, state) {
+        if (!transparencyAiStatus) {
+            return;
+        }
+        transparencyAiStatus.textContent = message;
+        transparencyAiStatus.classList.remove("running", "success", "error");
+        if (state) {
+            transparencyAiStatus.classList.add(state);
+        }
+    }
+
+    function setAiButtonBusy(isBusy) {
+        isAiRemovalRunning = isBusy;
+        transparencyAiApplyBtn.disabled = isBusy;
+        transparencyAiApplyBtn.textContent = isBusy ? "Working..." : "Run AI background removal";
+    }
+
     function updateToolSettingsForActiveTool() {
         var isShapeTool = ["line", "arrow", "rect", "ellipse"].indexOf(activeTool) >= 0;
         var supportsShapeFill = ["rect", "ellipse"].indexOf(activeTool) >= 0;
@@ -153,6 +198,7 @@
         setPanelVisible(cropSettings, activeTool === "crop");
         setPanelVisible(selectSettings, activeTool === "select");
         setPanelVisible(resizeSettings, activeTool === "resize");
+        setPanelVisible(transparencySettings, activeTool === "transparency");
 
         shapeColorLabel.textContent = (activeTool === "line" || activeTool === "arrow") ? "Line color" : "Stroke color";
         shapeFillToggleWrap.hidden = !supportsShapeFill;
@@ -191,6 +237,9 @@
         } else if (activeTool === "resize") {
             toolContextTitle.textContent = "Resize controls";
             toolContextDescription.textContent = "Set target width and height, then apply resize.";
+        } else if (activeTool === "transparency") {
+            toolContextTitle.textContent = "Transparency controls";
+            toolContextDescription.textContent = "Use region fill or AI removal to make backgrounds transparent.";
         } else {
             toolContextTitle.textContent = "Picker controls";
             toolContextDescription.textContent = "Sample a color and return to your previous tool.";
@@ -281,6 +330,20 @@
 
     fillTolerance.addEventListener("input", function () {
         fillToleranceLabel.textContent = fillTolerance.value;
+    });
+
+    transparencyTolerance.addEventListener("input", function () {
+        transparencyToleranceLabel.textContent = transparencyTolerance.value;
+    });
+
+    transparencyEdgeThreshold.addEventListener("input", function () {
+        transparencyEdgeThresholdLabel.textContent = transparencyEdgeThreshold.value;
+    });
+
+    transparencyMethodRadios.forEach(function (radio) {
+        radio.addEventListener("change", function () {
+            updateTransparencyMethodUI();
+        });
     });
 
     fontSize.addEventListener("input", function () {
@@ -757,9 +820,8 @@
         var fillR = parseInt(hex.substr(1, 2), 16);
         var fillG = parseInt(hex.substr(3, 2), 16);
         var fillB = parseInt(hex.substr(5, 2), 16);
-        var fillA = fillTransparentEnabled.checked ? 0 : 255;
 
-        if (startR === fillR && startG === fillG && startB === fillB && startA === fillA) {
+        if (startR === fillR && startG === fillG && startB === fillB && startA === 255) {
             return;
         }
 
@@ -790,7 +852,7 @@
                 outData[i] = fillR;
                 outData[i + 1] = fillG;
                 outData[i + 2] = fillB;
-                outData[i + 3] = fillA;
+                outData[i + 3] = 255;
 
                 if (cx > 0 && !visited[p - 1]) {
                     visited[p - 1] = 1;
@@ -817,6 +879,185 @@
         render();
         renderLayersPanel();
         pushUndo();
+    }
+
+    function computeEdgeStrengthMap(source, w, h) {
+        var edgeMap = new Uint16Array(w * h);
+        var lum = new Float32Array(w * h);
+
+        for (var i = 0, p = 0; i < lum.length; i++, p += 4) {
+            lum[i] = source[p] * 0.299 + source[p + 1] * 0.587 + source[p + 2] * 0.114;
+        }
+
+        for (var y = 1; y < h - 1; y++) {
+            for (var x = 1; x < w - 1; x++) {
+                var idx = y * w + x;
+                var gx =
+                    -lum[idx - w - 1] + lum[idx - w + 1] +
+                    -2 * lum[idx - 1] + 2 * lum[idx + 1] +
+                    -lum[idx + w - 1] + lum[idx + w + 1];
+                var gy =
+                    -lum[idx - w - 1] - 2 * lum[idx - w] - lum[idx - w + 1] +
+                    lum[idx + w - 1] + 2 * lum[idx + w] + lum[idx + w + 1];
+                edgeMap[idx] = Math.min(255, Math.sqrt(gx * gx + gy * gy));
+            }
+        }
+
+        return edgeMap;
+    }
+
+    function transparencyFillAt(px, py) {
+        var x = Math.floor(px);
+        var y = Math.floor(py);
+        var w = canvas.width;
+        var h = canvas.height;
+        if (x < 0 || x >= w || y < 0 || y >= h) {
+            return;
+        }
+
+        var composite = buildCompositeCanvas();
+        var cctx = composite.getContext("2d");
+        var imageData = cctx.getImageData(0, 0, w, h);
+        var source = imageData.data;
+
+        var seed = (y * w + x) * 4;
+        var startR = source[seed];
+        var startG = source[seed + 1];
+        var startB = source[seed + 2];
+        var startA = source[seed + 3];
+        if (startA === 0) {
+            return;
+        }
+
+        var tol = parseInt(transparencyTolerance.value, 10);
+        var useEdgeDetect = transparencyEdgeDetect.checked;
+        var edgeThreshold = parseInt(transparencyEdgeThreshold.value, 10);
+        var edgeMap = useEdgeDetect ? computeEdgeStrengthMap(source, w, h) : null;
+
+        var outCanvas = document.createElement("canvas");
+        outCanvas.width = w;
+        outCanvas.height = h;
+        var outCtx = outCanvas.getContext("2d");
+        outCtx.drawImage(composite, 0, 0);
+        var out = outCtx.getImageData(0, 0, w, h);
+        var outData = out.data;
+
+        var visited = new Uint8Array(w * h);
+        var stack = [x + y * w];
+        visited[x + y * w] = 1;
+
+        while (stack.length > 0) {
+            var p = stack.pop();
+            var cx = p % w;
+            var cy = (p - cx) / w;
+            var i = p * 4;
+
+            if (useEdgeDetect && edgeMap[p] > edgeThreshold) {
+                continue;
+            }
+
+            var dr = source[i] - startR;
+            var dg = source[i + 1] - startG;
+            var db = source[i + 2] - startB;
+            var da = source[i + 3] - startA;
+            if (Math.sqrt(dr * dr + dg * dg + db * db + da * da) <= tol) {
+                outData[i + 3] = 0;
+
+                if (cx > 0 && !visited[p - 1]) {
+                    visited[p - 1] = 1;
+                    stack.push(p - 1);
+                }
+                if (cx < w - 1 && !visited[p + 1]) {
+                    visited[p + 1] = 1;
+                    stack.push(p + 1);
+                }
+                if (cy > 0 && !visited[p - w]) {
+                    visited[p - w] = 1;
+                    stack.push(p - w);
+                }
+                if (cy < h - 1 && !visited[p + w]) {
+                    visited[p + w] = 1;
+                    stack.push(p + w);
+                }
+            }
+        }
+
+        outCtx.putImageData(out, 0, 0);
+        replaceWithRasterCanvas(outCanvas);
+    }
+
+    async function runAiBackgroundRemoval() {
+        if (isAiRemovalRunning) {
+            return;
+        }
+        if (!originalImage) {
+            setAiStatus("Load an image first.", "error");
+            return;
+        }
+
+        setAiButtonBusy(true);
+        setAiStatus("Preparing image...", "running");
+
+        var longRunNotice = window.setTimeout(function () {
+            setAiStatus("Still processing... first run may take a minute while models warm up.", "running");
+        }, 6000);
+
+        try {
+            var blob = await flattenToBlob();
+            var formData = new FormData();
+            formData.append("image", blob, "pixelforge_input.png");
+
+            setAiStatus("Uploading image to AI remover...", "running");
+            var response = await fetch("/api/remove-background", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!response.ok) {
+                var message = "AI background removal failed.";
+                try {
+                    var err = await response.json();
+                    if (err && err.error) {
+                        message = err.error;
+                    }
+                } catch (_ignored) {
+                    // Keep generic message when response is not JSON.
+                }
+                setAiStatus(message, "error");
+                window.alert(message);
+                return;
+            }
+
+            setAiStatus("Applying AI result...", "running");
+            var outBlob = await response.blob();
+            var url = URL.createObjectURL(outBlob);
+            await new Promise(function (resolve, reject) {
+                var img = new Image();
+                img.onload = function () {
+                    var out = document.createElement("canvas");
+                    out.width = img.width;
+                    out.height = img.height;
+                    out.getContext("2d").drawImage(img, 0, 0);
+                    URL.revokeObjectURL(url);
+                    replaceWithRasterCanvas(out);
+                    resolve();
+                };
+                img.onerror = function () {
+                    URL.revokeObjectURL(url);
+                    reject(new Error("Could not decode AI output image."));
+                };
+                img.src = url;
+            });
+
+            setAiStatus("Background removed successfully.", "success");
+        } catch (err) {
+            var errorMessage = err && err.message ? err.message : "AI background removal failed.";
+            setAiStatus(errorMessage, "error");
+            window.alert(errorMessage);
+        } finally {
+            window.clearTimeout(longRunNotice);
+            setAiButtonBusy(false);
+        }
     }
 
     function pushUndo() {
@@ -1024,6 +1265,11 @@
 
         if (activeTool === "fill") {
             floodFillAt(pos.x, pos.y);
+            return;
+        }
+
+        if (activeTool === "transparency" && getTransparencyMethod() === "region") {
+            transparencyFillAt(pos.x, pos.y);
             return;
         }
 
@@ -1267,6 +1513,9 @@
             redoBtn.click();
             return;
         }
+        if (event.ctrlKey || event.metaKey) {
+            return;
+        }
 
         var key = event.key.toLowerCase();
 
@@ -1322,6 +1571,11 @@
         }
         if (key === "s") {
             setTool("resize");
+            event.preventDefault();
+            return;
+        }
+        if (key === "x") {
+            setTool("transparency");
             event.preventDefault();
             return;
         }
@@ -1448,6 +1702,10 @@
         applyResize();
     });
 
+    transparencyAiApplyBtn.addEventListener("click", async function () {
+        await runAiBackgroundRemoval();
+    });
+
     downloadBtn.addEventListener("click", async function () {
         if (!originalImage) {
             return;
@@ -1489,4 +1747,5 @@
 
     updateToolSettingsForActiveTool();
     updateShapeFillVisibility();
+    updateTransparencyMethodUI();
 })();

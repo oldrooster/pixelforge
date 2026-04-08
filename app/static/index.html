@@ -41,6 +41,7 @@
                     <button id="tool-crop" class="btn btn-small">Crop</button>
                     <button id="tool-select" class="btn btn-small">Select</button>
                     <button id="tool-resize" class="btn btn-small">Resize</button>
+                    <button id="tool-transparency" class="btn btn-small">Transparency</button>
                 </div>
             </div>
 
@@ -61,7 +62,6 @@
                 <input id="fill-color" type="color" value="#ff4d6d">
                 <label>Tolerance <span id="fill-tolerance-label">30</span></label>
                 <input id="fill-tolerance" type="range" min="0" max="128" value="30">
-                <label><input id="fill-transparent-enabled" type="checkbox"> Fill with transparency</label>
             </div>
 
             <div id="text-settings" class="setting-group" hidden>
@@ -118,6 +118,35 @@
                 <input id="resize-height" type="number" min="1" step="1" value="0">
                 <label><input id="resize-lock-aspect" type="checkbox" checked> Lock aspect ratio</label>
                 <button id="resize-apply-btn" class="btn btn-small">Apply Resize</button>
+            </div>
+
+            <div id="transparency-settings" class="setting-group" hidden>
+                <label>Method</label>
+                <div id="transparency-method" class="method-row" role="radiogroup" aria-label="Transparency method">
+                    <label class="method-option">
+                        <input type="radio" name="transparency-method" value="region" checked>
+                        <span>Region fill</span>
+                    </label>
+                    <label class="method-option">
+                        <input type="radio" name="transparency-method" value="ai">
+                        <span>AI removal</span>
+                    </label>
+                </div>
+
+                <div id="transparency-region-controls">
+                    <div class="hint compact-hint">Click an area to make it transparent.</div>
+                    <label>Tolerance <span id="transparency-tolerance-label">30</span></label>
+                    <input id="transparency-tolerance" type="range" min="0" max="128" value="30">
+                    <label><input id="transparency-edge-detect" type="checkbox"> Edge detection</label>
+                    <label>Edge threshold <span id="transparency-edge-threshold-label">55</span></label>
+                    <input id="transparency-edge-threshold" type="range" min="0" max="255" value="55">
+                </div>
+
+                <div id="transparency-ai-controls" hidden>
+                    <div class="hint compact-hint">Uses Python rembg to remove background from the current image.</div>
+                    <button id="transparency-ai-apply-btn" class="btn btn-small">Run AI background removal</button>
+                    <div id="transparency-ai-status" class="hint compact-hint ai-status">Idle.</div>
+                </div>
             </div>
 
             <hr>

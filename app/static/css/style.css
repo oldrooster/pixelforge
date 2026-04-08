@@ -260,6 +260,49 @@ hr {
     animation: panel-enter 180ms ease-out;
 }
 
+.method-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.method-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 8px;
+    background: var(--panel-2);
+    color: var(--text);
+}
+
+.method-option input[type="radio"] {
+    margin: 0;
+}
+
+.ai-status {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.ai-status.running {
+    border-color: #3b82f6;
+    color: #a9ccff;
+}
+
+.ai-status.success {
+    border-color: #35d07f;
+    color: #9ff3c3;
+}
+
+.ai-status.error {
+    border-color: #ff6b6b;
+    color: #ffb3b3;
+}
+
 @keyframes panel-enter {
     from {
         opacity: 0;
