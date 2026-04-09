@@ -21,7 +21,7 @@ _vertex_credentials = None
 _vertex_project_id = None
 
 VERTEX_LOCATION = os.getenv("VERTEX_LOCATION", "us-central1")
-VERTEX_GENERATE_MODEL = os.getenv("VERTEX_GENERATE_MODEL", "imagen-3.0-generate-002")
+VERTEX_GENERATE_MODEL = os.getenv("VERTEX_GENERATE_MODEL", "imagen-4.0-generate-001")
 VERTEX_INPAINT_MODEL = os.getenv("VERTEX_INPAINT_MODEL", "imagen-3.0-capability-001")
 VERTEX_CREDENTIALS_PATH = Path(
     os.getenv("VERTEX_CREDENTIALS_PATH", str(Path(__file__).resolve().parents[1] / "vertex.json"))
@@ -110,6 +110,28 @@ def _extract_prediction_image_bytes(prediction_response):
     raise ValueError(f"Could not find image bytes in prediction response: {candidate}")
 
 
+def _extract_all_prediction_images_b64(prediction_response):
+    predictions = prediction_response.get("predictions") or []
+    if not predictions:
+        raise ValueError("No predictions returned by Vertex")
+
+    results = []
+    for candidate in predictions:
+        if not isinstance(candidate, dict):
+            continue
+        direct = candidate.get("bytesBase64Encoded")
+        if direct:
+            results.append(direct)
+            continue
+        image_obj = candidate.get("image")
+        if isinstance(image_obj, dict) and image_obj.get("bytesBase64Encoded"):
+            results.append(image_obj["bytesBase64Encoded"])
+
+    if not results:
+        raise ValueError("Could not find image bytes in any prediction")
+    return results
+
+
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
@@ -163,20 +185,18 @@ def vertex_generate_image():
             VERTEX_GENERATE_MODEL,
             instances=[{"prompt": prompt}],
             parameters={
-                "sampleCount": 1,
+                "sampleCount": 4,
                 "outputOptions": {"mimeType": "image/png"},
             },
         )
-        image_bytes = _extract_prediction_image_bytes(prediction)
+        raw_predictions = prediction.get("predictions") or []
+        print(f"[vertex/generate] requested 4, got {len(raw_predictions)} predictions back", flush=True)
+        images_b64 = _extract_all_prediction_images_b64(prediction)
+        print(f"[vertex/generate] extracted {len(images_b64)} images", flush=True)
     except Exception as exc:
         return jsonify({"error": f"Vertex generate failed: {exc}"}), 500
 
-    return send_file(
-        BytesIO(image_bytes),
-        mimetype="image/png",
-        as_attachment=False,
-        download_name="vertex_generated.png",
-    )
+    return jsonify({"images": images_b64})
 
 
 @app.post("/api/vertex/inpaint")

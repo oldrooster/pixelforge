@@ -10,8 +10,6 @@
     <header class="app-header">
         <h1>PixelForge</h1>
         <div class="header-actions">
-            <input id="ai-generate-prompt" class="ai-input" type="text" placeholder="Describe image to generate...">
-            <button id="ai-generate-btn" class="btn btn-secondary">AI Generate</button>
             <label class="btn btn-primary" for="image-input">Load Image</label>
             <input id="image-input" type="file" accept=".png,.jpg,.jpeg,.webp" hidden>
             <button id="download-btn" class="btn btn-secondary" disabled>Download</button>
@@ -31,6 +29,14 @@
             <div id="canvas-wrap" hidden>
                 <canvas id="markup-canvas"></canvas>
             </div>
+            <div id="zoom-controls" class="zoom-controls" hidden>
+                <button id="zoom-out-btn" class="btn btn-small">−</button>
+                <span id="zoom-label" class="zoom-label">100%</span>
+                <button id="zoom-in-btn" class="btn btn-small">+</button>
+                <button id="zoom-100-btn" class="btn btn-small">100%</button>
+                <button id="zoom-fit-btn" class="btn btn-small">Fit</button>
+            </div>
+            <div id="generate-thumbs" class="generate-thumbs" hidden></div>
         </section>
 
         <aside class="settings">
@@ -47,6 +53,7 @@
                     <button id="tool-resize" class="btn btn-small">Resize</button>
                     <button id="tool-transparency" class="btn btn-small">Transparency</button>
                     <button id="tool-inpaint" class="btn btn-small">Inpaint</button>
+                    <button id="tool-generate" class="btn btn-small">AI Generate</button>
                 </div>
             </div>
 
@@ -132,6 +139,7 @@
                     <button id="selection-apply-btn" class="btn btn-small">Apply Move</button>
                     <button id="selection-cancel-btn" class="btn btn-small">Cancel</button>
                 </div>
+                <button id="selection-delete-btn" class="btn btn-small">Delete Selection</button>
             </div>
 
             <div id="resize-settings" class="setting-group" hidden>
@@ -199,6 +207,12 @@
 
                 <input id="ai-inpaint-prompt" class="ai-input" type="text" placeholder="Describe edit for selected area...">
                 <button id="ai-inpaint-btn" class="btn btn-small">AI Inpaint</button>
+            </div>
+
+            <div id="generate-settings" class="setting-group" hidden>
+                <label>Prompt</label>
+                <textarea id="ai-generate-prompt-panel" rows="4" placeholder="Describe the image you want to generate..."></textarea>
+                <button id="ai-generate-panel-btn" class="btn btn-small">Generate Images</button>
             </div>
 
             <hr>
