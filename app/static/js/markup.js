@@ -1,5 +1,11 @@
 (function () {
     var imageInput = document.getElementById("image-input");
+    var aiGeneratePrompt = document.getElementById("ai-generate-prompt");
+    var aiGenerateBtn = document.getElementById("ai-generate-btn");
+    var aiInpaintBtn = document.getElementById("ai-inpaint-btn");
+    var topNotice = document.getElementById("top-notice");
+    var topNoticeText = document.getElementById("top-notice-text");
+    var topNoticeClose = document.getElementById("top-notice-close");
     var downloadBtn = document.getElementById("download-btn");
     var emptyState = document.getElementById("empty-state");
     var canvasArea = document.querySelector(".canvas-area");
@@ -10,16 +16,14 @@
     var toolButtons = {
         brush: document.getElementById("tool-brush"),
         text: document.getElementById("tool-text"),
-        line: document.getElementById("tool-line"),
-        arrow: document.getElementById("tool-arrow"),
-        rect: document.getElementById("tool-rect"),
-        ellipse: document.getElementById("tool-ellipse"),
+        shapes: document.getElementById("tool-shapes"),
         fill: document.getElementById("tool-fill"),
         picker: document.getElementById("tool-picker"),
         crop: document.getElementById("tool-crop"),
         select: document.getElementById("tool-select"),
         resize: document.getElementById("tool-resize"),
         transparency: document.getElementById("tool-transparency"),
+        inpaint: document.getElementById("tool-inpaint"),
     };
 
     var brushSettings = document.getElementById("brush-settings");
@@ -31,6 +35,7 @@
     var selectSettings = document.getElementById("select-settings");
     var resizeSettings = document.getElementById("resize-settings");
     var transparencySettings = document.getElementById("transparency-settings");
+    var inpaintSettings = document.getElementById("inpaint-settings");
     var toolContextTitle = document.getElementById("tool-context-title");
     var toolContextDescription = document.getElementById("tool-context-description");
 
@@ -48,6 +53,7 @@
     var fontSizeLabel = document.getElementById("font-size-label");
 
     var shapeColor = document.getElementById("shape-color");
+    var shapeTypeRadios = Array.prototype.slice.call(document.querySelectorAll("input[name='shape-type']"));
     var shapeColorLabel = document.getElementById("shape-color-label");
     var strokeSize = document.getElementById("stroke-size");
     var strokeSizeLabel = document.getElementById("stroke-size-label");
@@ -78,6 +84,13 @@
     var transparencyEdgeThresholdLabel = document.getElementById("transparency-edge-threshold-label");
     var transparencyAiApplyBtn = document.getElementById("transparency-ai-apply-btn");
     var transparencyAiStatus = document.getElementById("transparency-ai-status");
+    var aiInpaintPrompt = document.getElementById("ai-inpaint-prompt");
+    var inpaintMaskModeRadios = Array.prototype.slice.call(document.querySelectorAll("input[name='inpaint-mask-mode']"));
+    var inpaintSelectionControls = document.getElementById("inpaint-selection-controls");
+    var inpaintBrushControls = document.getElementById("inpaint-brush-controls");
+    var inpaintBrushSize = document.getElementById("inpaint-brush-size");
+    var inpaintBrushSizeLabel = document.getElementById("inpaint-brush-size-label");
+    var inpaintClearMaskBtn = document.getElementById("inpaint-clear-mask-btn");
 
     var layersPanel = document.getElementById("layers-panel");
     var undoBtn = document.getElementById("undo-btn");
@@ -107,16 +120,23 @@
     var isMovingSelection = false;
     var selectionDragOffset = { x: 0, y: 0 };
     var resizeAspectRatio = 1;
+    var isPaintingInpaintMask = false;
+    var inpaintMaskLastX = 0;
+    var inpaintMaskLastY = 0;
+    var inpaintMaskHasPaint = false;
 
     var activeBrushCanvas = null;
     var activeBrushCtx = null;
+    var inpaintMaskCanvas = null;
+    var inpaintMaskCtx = null;
 
     var undoStack = [];
     var redoStack = [];
     var MAX_UNDO = 50;
     var isAiRemovalRunning = false;
+    var isVertexOpRunning = false;
 
-    var toolPanels = [brushSettings, fillSettings, textSettings, shapeSettings, pickerSettings, cropSettings, selectSettings, resizeSettings, transparencySettings];
+    var toolPanels = [brushSettings, fillSettings, textSettings, shapeSettings, pickerSettings, cropSettings, selectSettings, resizeSettings, transparencySettings, inpaintSettings];
     toolPanels.forEach(function (panel) {
         panel.classList.add("tool-panel");
     });
@@ -151,7 +171,23 @@
     }
 
     function updateShapeFillVisibility() {
-        shapeFillColor.hidden = !shapeFillEnabled.checked || shapeFillToggleWrap.hidden;
+        var shapeType = getSelectedShapeType();
+        var supportsShapeFill = shapeType === "rect" || shapeType === "ellipse";
+        shapeFillToggleWrap.hidden = !supportsShapeFill;
+        if (!supportsShapeFill) {
+            shapeFillEnabled.checked = false;
+        }
+        shapeColorLabel.textContent = (shapeType === "line" || shapeType === "arrow") ? "Line color" : "Stroke color";
+        shapeFillColor.hidden = !shapeFillEnabled.checked || !supportsShapeFill;
+    }
+
+    function getSelectedShapeType() {
+        for (var i = 0; i < shapeTypeRadios.length; i++) {
+            if (shapeTypeRadios[i].checked) {
+                return shapeTypeRadios[i].value;
+            }
+        }
+        return "line";
     }
 
     function updateTransparencyMethodUI() {
@@ -167,6 +203,30 @@
             }
         }
         return "region";
+    }
+
+    function getInpaintMaskMode() {
+        for (var i = 0; i < inpaintMaskModeRadios.length; i++) {
+            if (inpaintMaskModeRadios[i].checked) {
+                return inpaintMaskModeRadios[i].value;
+            }
+        }
+        return "selection";
+    }
+
+    function updateInpaintMaskModeUI() {
+        var mode = getInpaintMaskMode();
+        inpaintSelectionControls.hidden = mode !== "selection";
+        inpaintBrushControls.hidden = mode !== "brush";
+    }
+
+    function toggleInpaintMaskMode() {
+        var nextMode = getInpaintMaskMode() === "selection" ? "brush" : "selection";
+        inpaintMaskModeRadios.forEach(function (radio) {
+            radio.checked = radio.value === nextMode;
+        });
+        updateInpaintMaskModeUI();
+        render();
     }
 
     function setAiStatus(message, state) {
@@ -186,9 +246,45 @@
         transparencyAiApplyBtn.textContent = isBusy ? "Working..." : "Run AI background removal";
     }
 
+    function setVertexButtonsBusy(isBusy) {
+        isVertexOpRunning = isBusy;
+        aiGenerateBtn.disabled = isBusy;
+        aiInpaintBtn.disabled = isBusy;
+        aiGenerateBtn.textContent = isBusy ? "Generating..." : "AI Generate";
+        aiInpaintBtn.textContent = isBusy ? "Inpainting..." : "AI Inpaint";
+    }
+
+    function showTopNotice(message, state, autoHideMs) {
+        if (!topNotice) {
+            return;
+        }
+        topNotice.hidden = false;
+        if (topNoticeText) {
+            topNoticeText.textContent = message;
+        }
+        topNotice.classList.remove("running", "success", "error");
+        if (state) {
+            topNotice.classList.add(state);
+        }
+        if (showTopNotice._timer) {
+            window.clearTimeout(showTopNotice._timer);
+        }
+        if (autoHideMs && autoHideMs > 0) {
+            showTopNotice._timer = window.setTimeout(function () {
+                topNotice.hidden = true;
+            }, autoHideMs);
+        }
+    }
+
+    topNoticeClose.addEventListener("click", function () {
+        if (showTopNotice._timer) {
+            window.clearTimeout(showTopNotice._timer);
+        }
+        topNotice.hidden = true;
+    });
+
     function updateToolSettingsForActiveTool() {
-        var isShapeTool = ["line", "arrow", "rect", "ellipse"].indexOf(activeTool) >= 0;
-        var supportsShapeFill = ["rect", "ellipse"].indexOf(activeTool) >= 0;
+        var isShapeTool = activeTool === "shapes";
 
         setPanelVisible(brushSettings, activeTool === "brush");
         setPanelVisible(fillSettings, activeTool === "fill");
@@ -199,12 +295,7 @@
         setPanelVisible(selectSettings, activeTool === "select");
         setPanelVisible(resizeSettings, activeTool === "resize");
         setPanelVisible(transparencySettings, activeTool === "transparency");
-
-        shapeColorLabel.textContent = (activeTool === "line" || activeTool === "arrow") ? "Line color" : "Stroke color";
-        shapeFillToggleWrap.hidden = !supportsShapeFill;
-        if (!supportsShapeFill) {
-            shapeFillEnabled.checked = false;
-        }
+        setPanelVisible(inpaintSettings, activeTool === "inpaint");
         updateShapeFillVisibility();
 
         if (activeTool === "brush") {
@@ -216,18 +307,9 @@
         } else if (activeTool === "text") {
             toolContextTitle.textContent = "Text controls";
             toolContextDescription.textContent = "Click anywhere on the image to place text.";
-        } else if (activeTool === "line") {
-            toolContextTitle.textContent = "Line controls";
-            toolContextDescription.textContent = "Drag to create a straight line.";
-        } else if (activeTool === "arrow") {
-            toolContextTitle.textContent = "Arrow controls";
-            toolContextDescription.textContent = "Drag to create an arrow with direction.";
-        } else if (activeTool === "rect") {
-            toolContextTitle.textContent = "Rectangle controls";
-            toolContextDescription.textContent = "Drag to draw a rectangle, optionally with fill.";
-        } else if (activeTool === "ellipse") {
-            toolContextTitle.textContent = "Ellipse controls";
-            toolContextDescription.textContent = "Drag to draw an ellipse, optionally with fill.";
+        } else if (activeTool === "shapes") {
+            toolContextTitle.textContent = "Shape controls";
+            toolContextDescription.textContent = "Pick a shape type and drag on canvas to draw.";
         } else if (activeTool === "crop") {
             toolContextTitle.textContent = "Crop controls";
             toolContextDescription.textContent = "Drag to define a crop area, then apply crop.";
@@ -240,6 +322,9 @@
         } else if (activeTool === "transparency") {
             toolContextTitle.textContent = "Transparency controls";
             toolContextDescription.textContent = "Use region fill or AI removal to make backgrounds transparent.";
+        } else if (activeTool === "inpaint") {
+            toolContextTitle.textContent = "Inpaint controls";
+            toolContextDescription.textContent = "Use selection mask or brush mask, then inpaint via Vertex AI.";
         } else {
             toolContextTitle.textContent = "Picker controls";
             toolContextDescription.textContent = "Sample a color and return to your previous tool.";
@@ -259,6 +344,12 @@
         activeBrushCanvas.width = img.width;
         activeBrushCanvas.height = img.height;
         activeBrushCtx = activeBrushCanvas.getContext("2d");
+
+        inpaintMaskCanvas = document.createElement("canvas");
+        inpaintMaskCanvas.width = img.width;
+        inpaintMaskCanvas.height = img.height;
+        inpaintMaskCtx = inpaintMaskCanvas.getContext("2d");
+        inpaintMaskHasPaint = false;
 
         layers = [];
         selectedLayerIndex = -1;
@@ -293,6 +384,93 @@
             img.src = e.target.result;
         };
         reader.readAsDataURL(file);
+    }
+
+    function applyBlobAsCanvas(blob) {
+        return new Promise(function (resolve, reject) {
+            var url = URL.createObjectURL(blob);
+            var img = new Image();
+            img.onload = function () {
+                URL.revokeObjectURL(url);
+                activateCanvas(img);
+                resolve();
+            };
+            img.onerror = function () {
+                URL.revokeObjectURL(url);
+                reject(new Error("Could not decode returned AI image."));
+            };
+            img.src = url;
+        });
+    }
+
+    function getActiveSelectionRect() {
+        if (floatingSelection) {
+            return {
+                x: floatingSelection.x,
+                y: floatingSelection.y,
+                w: floatingSelection.w,
+                h: floatingSelection.h,
+            };
+        }
+        return selectionRect;
+    }
+
+    function createSelectionMaskBlob(rect) {
+        return new Promise(function (resolve) {
+            var maskCanvas = document.createElement("canvas");
+            maskCanvas.width = canvas.width;
+            maskCanvas.height = canvas.height;
+            var mctx = maskCanvas.getContext("2d");
+
+            mctx.fillStyle = "#000";
+            mctx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+            mctx.fillStyle = "#fff";
+            mctx.fillRect(Math.floor(rect.x), Math.floor(rect.y), Math.floor(rect.w), Math.floor(rect.h));
+
+            maskCanvas.toBlob(resolve, "image/png");
+        });
+    }
+
+    function clearInpaintMask() {
+        if (!inpaintMaskCtx || !inpaintMaskCanvas) {
+            return;
+        }
+        inpaintMaskCtx.clearRect(0, 0, inpaintMaskCanvas.width, inpaintMaskCanvas.height);
+        inpaintMaskHasPaint = false;
+        render();
+    }
+
+    function paintInpaintMaskDot(x, y) {
+        if (!inpaintMaskCtx) {
+            return;
+        }
+        var radius = parseInt(inpaintBrushSize.value, 10) / 2;
+        inpaintMaskCtx.beginPath();
+        inpaintMaskCtx.arc(x, y, radius, 0, Math.PI * 2);
+        inpaintMaskCtx.fillStyle = "#fff";
+        inpaintMaskCtx.fill();
+        inpaintMaskHasPaint = true;
+    }
+
+    function paintInpaintMaskStroke(x1, y1, x2, y2) {
+        if (!inpaintMaskCtx) {
+            return;
+        }
+        inpaintMaskCtx.beginPath();
+        inpaintMaskCtx.moveTo(x1, y1);
+        inpaintMaskCtx.lineTo(x2, y2);
+        inpaintMaskCtx.strokeStyle = "#fff";
+        inpaintMaskCtx.lineWidth = parseInt(inpaintBrushSize.value, 10);
+        inpaintMaskCtx.lineCap = "round";
+        inpaintMaskCtx.lineJoin = "round";
+        inpaintMaskCtx.stroke();
+        inpaintMaskHasPaint = true;
+    }
+
+    function createInpaintBrushMaskBlob() {
+        return new Promise(function (resolve) {
+            inpaintMaskCanvas.toBlob(resolve, "image/png");
+        });
     }
 
     function setTool(tool) {
@@ -346,6 +524,21 @@
         });
     });
 
+    inpaintMaskModeRadios.forEach(function (radio) {
+        radio.addEventListener("change", function () {
+            updateInpaintMaskModeUI();
+            render();
+        });
+    });
+
+    inpaintBrushSize.addEventListener("input", function () {
+        inpaintBrushSizeLabel.textContent = inpaintBrushSize.value;
+    });
+
+    inpaintClearMaskBtn.addEventListener("click", function () {
+        clearInpaintMask();
+    });
+
     fontSize.addEventListener("input", function () {
         fontSizeLabel.textContent = fontSize.value;
     });
@@ -356,6 +549,12 @@
 
     shapeFillEnabled.addEventListener("change", function () {
         updateShapeFillVisibility();
+    });
+
+    shapeTypeRadios.forEach(function (radio) {
+        radio.addEventListener("change", function () {
+            updateShapeFillVisibility();
+        });
     });
 
     function getCanvasPos(event) {
@@ -743,24 +942,31 @@
         if (activeTool === "crop" && cropRect) {
             drawOverlayRect(cropRect, "#ffd166");
         }
-        if (activeTool === "select" && selectionRect && !floatingSelection) {
+        if ((activeTool === "select" || (activeTool === "inpaint" && getInpaintMaskMode() === "selection")) && selectionRect && !floatingSelection) {
             drawOverlayRect(selectionRect, "#35d07f");
+        }
+            if ((activeTool === "inpaint" && getInpaintMaskMode() === "brush") && inpaintMaskHasPaint && inpaintMaskCanvas) {
+            ctx.save();
+            ctx.globalAlpha = 0.35;
+            ctx.drawImage(inpaintMaskCanvas, 0, 0);
+            ctx.restore();
         }
     }
 
     function createShapeLayer(x1, y1, x2, y2) {
+        var shapeType = getSelectedShapeType();
         var stroke = shapeColor.value;
         var width = parseInt(strokeSize.value, 10);
         var fill = shapeFillEnabled.checked;
         var fillCol = shapeFillColor.value;
 
-        if (activeTool === "line") {
+        if (shapeType === "line") {
             return { type: "line", x1: x1, y1: y1, x2: x2, y2: y2, color: stroke, lineWidth: width };
         }
-        if (activeTool === "arrow") {
+        if (shapeType === "arrow") {
             return { type: "arrow", x1: x1, y1: y1, x2: x2, y2: y2, color: stroke, lineWidth: width };
         }
-        if (activeTool === "rect") {
+        if (shapeType === "rect") {
             var rx = Math.min(x1, x2);
             var ry = Math.min(y1, y2);
             return {
@@ -775,7 +981,7 @@
                 fillColor: fillCol,
             };
         }
-        if (activeTool === "ellipse") {
+        if (shapeType === "ellipse") {
             return {
                 type: "ellipse",
                 cx: (x1 + x2) / 2,
@@ -1024,7 +1230,7 @@
                     // Keep generic message when response is not JSON.
                 }
                 setAiStatus(message, "error");
-                window.alert(message);
+                showTopNotice(message, "error", 6500);
                 return;
             }
 
@@ -1053,10 +1259,129 @@
         } catch (err) {
             var errorMessage = err && err.message ? err.message : "AI background removal failed.";
             setAiStatus(errorMessage, "error");
-            window.alert(errorMessage);
+            showTopNotice(errorMessage, "error", 6500);
         } finally {
             window.clearTimeout(longRunNotice);
             setAiButtonBusy(false);
+        }
+    }
+
+    async function runVertexGenerate() {
+        if (isVertexOpRunning) {
+            return;
+        }
+
+        var prompt = aiGeneratePrompt.value.trim();
+        if (!prompt) {
+            showTopNotice("Enter a prompt in the AI Generate field.", "error", 4200);
+            return;
+        }
+
+        setVertexButtonsBusy(true);
+        showTopNotice("Generating image with Vertex AI...", "running");
+        try {
+            var response = await fetch("/api/vertex/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt: prompt }),
+            });
+
+            if (!response.ok) {
+                var message = "AI generate failed.";
+                try {
+                    var err = await response.json();
+                    if (err && err.error) {
+                        message = err.error;
+                    }
+                } catch (_ignored) {
+                    // noop
+                }
+                throw new Error(message);
+            }
+
+            var outBlob = await response.blob();
+            await applyBlobAsCanvas(outBlob);
+            showTopNotice("AI generation complete.", "success", 3000);
+        } catch (err) {
+            var msg = err && err.message ? err.message : "AI generate failed.";
+            showTopNotice(msg, "error", 6500);
+        } finally {
+            setVertexButtonsBusy(false);
+        }
+    }
+
+    async function runVertexInpaint() {
+        if (isVertexOpRunning) {
+            return;
+        }
+        if (!originalImage) {
+            showTopNotice("Load an image first.", "error", 4200);
+            return;
+        }
+
+        var maskMode = getInpaintMaskMode();
+
+        var prompt = aiInpaintPrompt.value.trim();
+        if (!prompt) {
+            showTopNotice("Enter an AI Inpaint prompt in the Inpaint panel.", "error", 4200);
+            return;
+        }
+
+        setVertexButtonsBusy(true);
+        showTopNotice("Running Vertex AI inpainting...", "running");
+        try {
+            var imageBlob = await flattenToBlob();
+            var maskBlob;
+
+            if (maskMode === "selection") {
+                var rect = getActiveSelectionRect();
+                rect = clampRectToCanvas(rect);
+                if (!rect || rect.w < 3 || rect.h < 3) {
+                    showTopNotice("Create a selection first (Select tool), then run AI Inpaint.", "error", 5200);
+                    return;
+                }
+                maskBlob = await createSelectionMaskBlob(rect);
+            } else {
+                if (!inpaintMaskHasPaint) {
+                    showTopNotice("Paint a brush mask first, then run AI Inpaint.", "error", 5200);
+                    return;
+                }
+                maskBlob = await createInpaintBrushMaskBlob();
+            }
+
+            var formData = new FormData();
+            formData.append("prompt", prompt);
+            formData.append("image", imageBlob, "pixelforge_inpaint_input.png");
+            formData.append("mask", maskBlob, "pixelforge_inpaint_mask.png");
+
+            var response = await fetch("/api/vertex/inpaint", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!response.ok) {
+                var message = "AI inpainting failed.";
+                try {
+                    var err = await response.json();
+                    if (err && err.error) {
+                        message = err.error;
+                    }
+                } catch (_ignored2) {
+                    // noop
+                }
+                throw new Error(message);
+            }
+
+            var outBlob = await response.blob();
+            await applyBlobAsCanvas(outBlob);
+            clearSelectionState();
+            clearInpaintMask();
+            showTopNotice("AI inpainting complete.", "success", 3000);
+        } catch (err) {
+            var msg = err && err.message ? err.message : "AI inpainting failed.";
+            showTopNotice(msg, "error", 6500);
+        } finally {
+            setVertexButtonsBusy(false);
         }
     }
 
@@ -1231,7 +1556,7 @@
             return;
         }
 
-        if (activeTool === "select") {
+        if (activeTool === "select" || (activeTool === "inpaint" && getInpaintMaskMode() === "selection")) {
             if (floatingSelection && pointInRect(pos.x, pos.y, floatingSelection)) {
                 isMovingSelection = true;
                 selectionDragOffset = { x: pos.x - floatingSelection.x, y: pos.y - floatingSelection.y };
@@ -1243,6 +1568,15 @@
             floatingSelection = null;
             selectionBackground = null;
             updateSelectionLabel(selectionRect);
+            render();
+            return;
+        }
+
+        if (activeTool === "inpaint" && getInpaintMaskMode() === "brush") {
+            isPaintingInpaintMask = true;
+            inpaintMaskLastX = pos.x;
+            inpaintMaskLastY = pos.y;
+            paintInpaintMaskDot(pos.x, pos.y);
             render();
             return;
         }
@@ -1355,7 +1689,7 @@
             return;
         }
 
-        if (activeTool === "select") {
+        if (activeTool === "select" || (activeTool === "inpaint" && getInpaintMaskMode() === "selection")) {
             if (isMovingSelection && floatingSelection) {
                 floatingSelection.x = pos.x - selectionDragOffset.x;
                 floatingSelection.y = pos.y - selectionDragOffset.y;
@@ -1375,6 +1709,14 @@
                 render();
                 return;
             }
+        }
+
+        if (activeTool === "inpaint" && getInpaintMaskMode() === "brush" && isPaintingInpaintMask) {
+            paintInpaintMaskStroke(inpaintMaskLastX, inpaintMaskLastY, pos.x, pos.y);
+            inpaintMaskLastX = pos.x;
+            inpaintMaskLastY = pos.y;
+            render();
+            return;
         }
 
         if (activeTool === "brush" && isDrawing) {
@@ -1416,7 +1758,7 @@
             return;
         }
 
-        if (dragStart && ["line", "arrow", "rect", "ellipse"].indexOf(activeTool) >= 0) {
+        if (dragStart && activeTool === "shapes") {
             render();
             var preview = createShapeLayer(dragStart.x, dragStart.y, pos.x, pos.y);
             if (preview) {
@@ -1438,7 +1780,7 @@
             return;
         }
 
-        if (activeTool === "select") {
+        if (activeTool === "select" || (activeTool === "inpaint" && getInpaintMaskMode() === "selection")) {
             if (isMovingSelection) {
                 isMovingSelection = false;
                 return;
@@ -1453,6 +1795,12 @@
                 return;
             }
             dragStart = null;
+            return;
+        }
+
+        if (activeTool === "inpaint" && getInpaintMaskMode() === "brush" && isPaintingInpaintMask) {
+            isPaintingInpaintMask = false;
+            render();
             return;
         }
 
@@ -1474,7 +1822,7 @@
             pushUndo();
         }
 
-        if (dragStart && lastMousePos) {
+        if (activeTool === "shapes" && dragStart && lastMousePos) {
             var dx = Math.abs(lastMousePos.x - dragStart.x);
             var dy = Math.abs(lastMousePos.y - dragStart.y);
             if (dx > 3 || dy > 3) {
@@ -1550,22 +1898,38 @@
             return;
         }
         if (key === "l") {
-            setTool("line");
+            setTool("shapes");
+            shapeTypeRadios.forEach(function (radio) {
+                radio.checked = radio.value === "line";
+            });
+            updateShapeFillVisibility();
             event.preventDefault();
             return;
         }
         if (key === "a") {
-            setTool("arrow");
+            setTool("shapes");
+            shapeTypeRadios.forEach(function (radio) {
+                radio.checked = radio.value === "arrow";
+            });
+            updateShapeFillVisibility();
             event.preventDefault();
             return;
         }
         if (key === "r") {
-            setTool("rect");
+            setTool("shapes");
+            shapeTypeRadios.forEach(function (radio) {
+                radio.checked = radio.value === "rect";
+            });
+            updateShapeFillVisibility();
             event.preventDefault();
             return;
         }
         if (key === "e") {
-            setTool("ellipse");
+            setTool("shapes");
+            shapeTypeRadios.forEach(function (radio) {
+                radio.checked = radio.value === "ellipse";
+            });
+            updateShapeFillVisibility();
             event.preventDefault();
             return;
         }
@@ -1576,6 +1940,19 @@
         }
         if (key === "x") {
             setTool("transparency");
+            event.preventDefault();
+            return;
+        }
+        if (key === "i") {
+            setTool("inpaint");
+            event.preventDefault();
+            return;
+        }
+        if (key === "m") {
+            if (activeTool !== "inpaint") {
+                setTool("inpaint");
+            }
+            toggleInpaintMaskMode();
             event.preventDefault();
             return;
         }
@@ -1706,6 +2083,14 @@
         await runAiBackgroundRemoval();
     });
 
+    aiGenerateBtn.addEventListener("click", async function () {
+        await runVertexGenerate();
+    });
+
+    aiInpaintBtn.addEventListener("click", async function () {
+        await runVertexInpaint();
+    });
+
     downloadBtn.addEventListener("click", async function () {
         if (!originalImage) {
             return;
@@ -1748,4 +2133,6 @@
     updateToolSettingsForActiveTool();
     updateShapeFillVisibility();
     updateTransparencyMethodUI();
+    updateInpaintMaskModeUI();
+    showTopNotice("AI idle.", "success", 1500);
 })();

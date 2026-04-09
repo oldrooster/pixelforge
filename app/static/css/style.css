@@ -37,7 +37,65 @@ body {
 
 .header-actions {
     display: flex;
+    align-items: center;
     gap: 8px;
+}
+
+.ai-input {
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 10px;
+    min-width: 260px;
+}
+
+.top-notice {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 30;
+    max-width: 360px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: rgba(20, 26, 33, 0.95);
+    color: var(--text);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.top-notice[hidden] {
+    display: none;
+}
+
+.top-notice-close {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: inherit;
+    border-radius: 6px;
+    width: 22px;
+    height: 22px;
+    line-height: 1;
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+.top-notice.running {
+    border-color: #3b82f6;
+    color: #a9ccff;
+}
+
+.top-notice.success {
+    border-color: #35d07f;
+    color: #9ff3c3;
+}
+
+.top-notice.error {
+    border-color: #ff6b6b;
+    color: #ffb3b3;
 }
 
 .markup-layout {
@@ -281,6 +339,13 @@ hr {
     margin: 0;
 }
 
+#inpaint-brush-controls {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
 .ai-status {
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -326,6 +391,15 @@ hr {
 }
 
 @media (max-width: 980px) {
+    .app-header {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .ai-input {
+        min-width: 180px;
+    }
+
     .markup-layout {
         grid-template-columns: 1fr;
     }

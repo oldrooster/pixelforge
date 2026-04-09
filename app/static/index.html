@@ -10,11 +10,18 @@
     <header class="app-header">
         <h1>PixelForge</h1>
         <div class="header-actions">
+            <input id="ai-generate-prompt" class="ai-input" type="text" placeholder="Describe image to generate...">
+            <button id="ai-generate-btn" class="btn btn-secondary">AI Generate</button>
             <label class="btn btn-primary" for="image-input">Load Image</label>
             <input id="image-input" type="file" accept=".png,.jpg,.jpeg,.webp" hidden>
-            <button id="download-btn" class="btn btn-secondary" disabled>Download PNG</button>
+            <button id="download-btn" class="btn btn-secondary" disabled>Download</button>
         </div>
     </header>
+
+    <div id="top-notice" class="top-notice" hidden>
+        <span id="top-notice-text"></span>
+        <button id="top-notice-close" class="top-notice-close" aria-label="Dismiss notice">x</button>
+    </div>
 
     <main class="markup-layout">
         <section class="canvas-area">
@@ -32,16 +39,14 @@
                 <div class="tool-grid">
                     <button id="tool-brush" class="btn btn-small active">Brush</button>
                     <button id="tool-text" class="btn btn-small">Text</button>
-                    <button id="tool-line" class="btn btn-small">Line</button>
-                    <button id="tool-arrow" class="btn btn-small">Arrow</button>
-                    <button id="tool-rect" class="btn btn-small">Rect</button>
-                    <button id="tool-ellipse" class="btn btn-small">Ellipse</button>
+                    <button id="tool-shapes" class="btn btn-small">Shapes</button>
                     <button id="tool-fill" class="btn btn-small">Fill</button>
                     <button id="tool-picker" class="btn btn-small">Picker</button>
                     <button id="tool-crop" class="btn btn-small">Crop</button>
                     <button id="tool-select" class="btn btn-small">Select</button>
                     <button id="tool-resize" class="btn btn-small">Resize</button>
                     <button id="tool-transparency" class="btn btn-small">Transparency</button>
+                    <button id="tool-inpaint" class="btn btn-small">Inpaint</button>
                 </div>
             </div>
 
@@ -78,6 +83,25 @@
             </div>
 
             <div id="shape-settings" class="setting-group" hidden>
+                <label>Shape type</label>
+                <div id="shape-type" class="method-row" role="radiogroup" aria-label="Shape type">
+                    <label class="method-option">
+                        <input type="radio" name="shape-type" value="line" checked>
+                        <span>Line</span>
+                    </label>
+                    <label class="method-option">
+                        <input type="radio" name="shape-type" value="arrow">
+                        <span>Arrow</span>
+                    </label>
+                    <label class="method-option">
+                        <input type="radio" name="shape-type" value="rect">
+                        <span>Rect</span>
+                    </label>
+                    <label class="method-option">
+                        <input type="radio" name="shape-type" value="ellipse">
+                        <span>Ellipse</span>
+                    </label>
+                </div>
                 <label id="shape-color-label">Stroke color</label>
                 <input id="shape-color" type="color" value="#ff4d6d">
                 <label>Stroke width <span id="stroke-size-label">3</span>px</label>
@@ -147,6 +171,34 @@
                     <button id="transparency-ai-apply-btn" class="btn btn-small">Run AI background removal</button>
                     <div id="transparency-ai-status" class="hint compact-hint ai-status">Idle.</div>
                 </div>
+            </div>
+
+            <div id="inpaint-settings" class="setting-group" hidden>
+                <div class="hint compact-hint">Choose mask source for Vertex AI inpainting.</div>
+                <div id="inpaint-mask-mode" class="method-row" role="radiogroup" aria-label="Inpaint mask mode">
+                    <label class="method-option">
+                        <input type="radio" name="inpaint-mask-mode" value="selection" checked>
+                        <span>Selection</span>
+                    </label>
+                    <label class="method-option">
+                        <input type="radio" name="inpaint-mask-mode" value="brush">
+                        <span>Brush mask</span>
+                    </label>
+                </div>
+
+                <div id="inpaint-selection-controls">
+                    <div class="hint compact-hint">Use Select tool to define mask area before running inpaint.</div>
+                </div>
+
+                <div id="inpaint-brush-controls" hidden>
+                    <div class="hint compact-hint">Paint mask directly on canvas where inpaint should apply.</div>
+                    <label>Mask brush size <span id="inpaint-brush-size-label">28</span>px</label>
+                    <input id="inpaint-brush-size" type="range" min="4" max="120" value="28">
+                    <button id="inpaint-clear-mask-btn" class="btn btn-small">Clear Brush Mask</button>
+                </div>
+
+                <input id="ai-inpaint-prompt" class="ai-input" type="text" placeholder="Describe edit for selected area...">
+                <button id="ai-inpaint-btn" class="btn btn-small">AI Inpaint</button>
             </div>
 
             <hr>
