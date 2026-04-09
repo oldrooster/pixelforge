@@ -1,6 +1,8 @@
 import base64
 import json
 import os
+import struct
+import zlib
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
@@ -61,7 +63,7 @@ def _get_vertex_access_token_and_project():
         return _vertex_credentials.token, _vertex_project_id
 
 
-def _vertex_predict(model_name, instances, parameters):
+def _vertex_predict(model_name, instances, parameters, timeout=300):
     token, project_id = _get_vertex_access_token_and_project()
 
     endpoint = (
@@ -79,7 +81,7 @@ def _vertex_predict(model_name, instances, parameters):
             "instances": instances,
             "parameters": parameters,
         },
-        timeout=300,
+        timeout=timeout,
     )
 
     if not response.ok:
@@ -88,6 +90,31 @@ def _vertex_predict(model_name, instances, parameters):
         )
 
     return response.json()
+
+
+def _make_white_mask_b64(image_bytes):
+    """Return a base64-encoded full-white PNG with the same dimensions as image_bytes."""
+    try:
+        w = struct.unpack(">I", image_bytes[16:20])[0]
+        h = struct.unpack(">I", image_bytes[20:24])[0]
+    except Exception:
+        w = h = 512
+
+    row = b"\x00" + b"\xff" * w * 3
+    raw = row * h
+
+    def _chunk(tag, data):
+        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", ihdr)
+        + _chunk(b"IDAT", zlib.compress(raw))
+        + _chunk(b"IEND", b"")
+    )
+    return base64.b64encode(png).decode("utf-8")
 
 
 def _extract_prediction_image_bytes(prediction_response):
@@ -199,6 +226,43 @@ def vertex_generate_image():
     return jsonify({"images": images_b64})
 
 
+@app.post("/api/vertex/refine")
+def vertex_refine_image():
+    prompt = (request.form.get("prompt") or "").strip()
+    if not prompt:
+        return jsonify({"error": "Prompt is required"}), 400
+
+    image_file = request.files.get("image")
+    if image_file is None:
+        return jsonify({"error": "Missing image file"}), 400
+
+    image_bytes = image_file.read()
+    if not image_bytes:
+        return jsonify({"error": "Empty image file"}), 400
+
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    image_obj = {"mimeType": "image/png", "bytesBase64Encoded": image_b64}
+
+    img_plain = {"bytesBase64Encoded": image_b64}
+
+    instance = {
+        "prompt": prompt,
+        "referenceImages": [
+            {"referenceType": "REFERENCE_TYPE_RAW", "referenceId": 1, "referenceImage": img_plain},
+        ],
+    }
+    parameters = {"sampleCount": 4, "editConfig": {"editMode": "inpainting-insert"}}
+
+    try:
+        prediction = _vertex_predict(VERTEX_INPAINT_MODEL, instances=[instance], parameters=parameters, timeout=120)
+        raw = prediction.get("predictions") or []
+        print(f"[vertex/refine] got {len(raw)} predictions", flush=True)
+        images_b64 = _extract_all_prediction_images_b64(prediction)
+        return jsonify({"images": images_b64})
+    except Exception as exc:
+        return jsonify({"error": f"Vertex refine failed: {exc}"}), 500
+
+
 @app.post("/api/vertex/inpaint")
 def vertex_inpaint_image():
     prompt = (request.form.get("prompt") or "").strip()
@@ -217,87 +281,31 @@ def vertex_inpaint_image():
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     mask_b64 = base64.b64encode(mask_bytes).decode("utf-8")
-    image_obj = {"mimeType": "image/png", "bytesBase64Encoded": image_b64}
-    image_raw = {"bytesBase64Encoded": image_b64}
-    mask_obj = {"mimeType": "image/png", "bytesBase64Encoded": mask_b64}
-    mask_raw = {"bytesBase64Encoded": mask_b64}
+    img_plain = {"bytesBase64Encoded": image_b64}
+    msk_plain = {"bytesBase64Encoded": mask_b64}
 
-    # Vertex image editing payload shape can vary across model versions.
-    # Try a compatibility matrix of context and mask field variants.
-    context_variants = [
-        {"context_image": [{"image": image_obj}]},
-        {"context_image": [{"image": image_raw}]},
-        {"context_image": [image_obj]},
-        {"context_image": {"image": image_obj}},
-        {"contextImages": [{"image": image_obj}]},
-        {"context_images": [{"image": image_obj}]},
-    ]
+    instance = {
+        "prompt": prompt,
+        "referenceImages": [
+            {"referenceType": "REFERENCE_TYPE_RAW", "referenceId": 1, "referenceImage": img_plain},
+            {"referenceType": "REFERENCE_TYPE_MASK", "referenceId": 2, "referenceImage": msk_plain,
+             "maskImageConfig": {"maskMode": "MASK_MODE_USER_PROVIDED"}},
+        ],
+    }
+    parameters = {"sampleCount": 1, "editConfig": {"editMode": "inpainting-insert"}}
 
-    mask_variants = [
-        {"mask": {"image": mask_obj}},
-        {"mask": {"image": mask_raw}},
-        {"mask": mask_obj},
-        {"editMask": {"image": mask_obj}},
-    ]
-
-    candidate_instances = []
-    for context_fields in context_variants:
-        for mask_fields in mask_variants:
-            base = {
-                "prompt": prompt,
-                "image": image_obj,
-            }
-            base.update(context_fields)
-            base.update(mask_fields)
-            candidate_instances.append(base)
-
-    parameter_variants = [
-        {
-            "sampleCount": 1,
-            "outputOptions": {"mimeType": "image/png"},
-        },
-        {
-            "sampleCount": 1,
-            "outputOptions": {"mimeType": "image/png"},
-            "editConfig": {"editMode": "inpainting-insert"},
-        },
-        {
-            "sampleCount": 1,
-            "outputOptions": {"mimeType": "image/png"},
-            "mode": "edit",
-        },
-    ]
-
-    error_messages = []
-    output_bytes = None
-
-    for instance in candidate_instances:
-        for params in parameter_variants:
-            try:
-                prediction = _vertex_predict(
-                    VERTEX_INPAINT_MODEL,
-                    instances=[instance],
-                    parameters=params,
-                )
-                output_bytes = _extract_prediction_image_bytes(prediction)
-                break
-            except Exception as exc:
-                message = str(exc)
-                if message not in error_messages:
-                    error_messages.append(message)
-        if output_bytes is not None:
-            break
-
-    if output_bytes is None:
-        summary = error_messages[-1] if error_messages else "Unknown Vertex inpainting failure"
-        return jsonify({"error": f"Vertex inpainting failed: {summary}"}), 500
-
-    return send_file(
-        BytesIO(output_bytes),
-        mimetype="image/png",
-        as_attachment=False,
-        download_name="vertex_inpainted.png",
-    )
+    try:
+        prediction = _vertex_predict(VERTEX_INPAINT_MODEL, instances=[instance], parameters=parameters, timeout=120)
+        output_bytes = _extract_prediction_image_bytes(prediction)
+        print(f"[vertex/inpaint] success", flush=True)
+        return send_file(
+            BytesIO(output_bytes),
+            mimetype="image/png",
+            as_attachment=False,
+            download_name="vertex_inpainted.png",
+        )
+    except Exception as exc:
+        return jsonify({"error": f"Vertex inpainting failed: {exc}"}), 500
 
 
 if __name__ == "__main__":

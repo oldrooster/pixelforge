@@ -54,6 +54,7 @@
                     <button id="tool-transparency" class="btn btn-small">Transparency</button>
                     <button id="tool-inpaint" class="btn btn-small">Inpaint</button>
                     <button id="tool-generate" class="btn btn-small">AI Generate</button>
+                    <button id="tool-refine" class="btn btn-small">AI Refine</button>
                 </div>
             </div>
 
@@ -207,6 +208,13 @@
 
                 <input id="ai-inpaint-prompt" class="ai-input" type="text" placeholder="Describe edit for selected area...">
                 <button id="ai-inpaint-btn" class="btn btn-small">AI Inpaint</button>
+            </div>
+
+            <div id="refine-settings" class="setting-group" hidden>
+                <div class="hint compact-hint">Describe how to change the current image.</div>
+                <label>Prompt</label>
+                <textarea id="ai-refine-prompt-panel" rows="4" placeholder="Describe the changes you want to make..."></textarea>
+                <button id="ai-refine-panel-btn" class="btn btn-small">Refine Images</button>
             </div>
 
             <div id="generate-settings" class="setting-group" hidden>

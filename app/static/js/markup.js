@@ -2,6 +2,8 @@
     var imageInput = document.getElementById("image-input");
     var aiGeneratePromptPanel = document.getElementById("ai-generate-prompt-panel");
     var aiGeneratePanelBtn = document.getElementById("ai-generate-panel-btn");
+    var aiRefinePromptPanel = document.getElementById("ai-refine-prompt-panel");
+    var aiRefinePanelBtn = document.getElementById("ai-refine-panel-btn");
     var aiInpaintBtn = document.getElementById("ai-inpaint-btn");
     var generateThumbs = document.getElementById("generate-thumbs");
     var topNotice = document.getElementById("top-notice");
@@ -26,6 +28,7 @@
         transparency: document.getElementById("tool-transparency"),
         inpaint: document.getElementById("tool-inpaint"),
         generate: document.getElementById("tool-generate"),
+        refine: document.getElementById("tool-refine"),
     };
 
     var brushSettings = document.getElementById("brush-settings");
@@ -39,6 +42,7 @@
     var transparencySettings = document.getElementById("transparency-settings");
     var inpaintSettings = document.getElementById("inpaint-settings");
     var generateSettings = document.getElementById("generate-settings");
+    var refineSettings = document.getElementById("refine-settings");
     var toolContextTitle = document.getElementById("tool-context-title");
     var toolContextDescription = document.getElementById("tool-context-description");
 
@@ -149,7 +153,7 @@
     var isAiRemovalRunning = false;
     var isVertexOpRunning = false;
 
-    var toolPanels = [brushSettings, fillSettings, textSettings, shapeSettings, pickerSettings, cropSettings, selectSettings, resizeSettings, transparencySettings, inpaintSettings, generateSettings];
+    var toolPanels = [brushSettings, fillSettings, textSettings, shapeSettings, pickerSettings, cropSettings, selectSettings, resizeSettings, transparencySettings, inpaintSettings, generateSettings, refineSettings];
     toolPanels.forEach(function (panel) {
         panel.classList.add("tool-panel");
     });
@@ -262,8 +266,10 @@
     function setVertexButtonsBusy(isBusy) {
         isVertexOpRunning = isBusy;
         aiGeneratePanelBtn.disabled = isBusy;
+        aiRefinePanelBtn.disabled = isBusy;
         aiInpaintBtn.disabled = isBusy;
         aiGeneratePanelBtn.textContent = isBusy ? "Generating..." : "Generate Images";
+        aiRefinePanelBtn.textContent = isBusy ? "Refining..." : "Refine Images";
         aiInpaintBtn.textContent = isBusy ? "Inpainting..." : "AI Inpaint";
     }
 
@@ -310,6 +316,7 @@
         setPanelVisible(transparencySettings, activeTool === "transparency");
         setPanelVisible(inpaintSettings, activeTool === "inpaint");
         setPanelVisible(generateSettings, activeTool === "generate");
+        setPanelVisible(refineSettings, activeTool === "refine");
         updateShapeFillVisibility();
 
         if (activeTool === "brush") {
@@ -341,7 +348,10 @@
             toolContextDescription.textContent = "Use selection mask or brush mask, then inpaint via Vertex AI.";
         } else if (activeTool === "generate") {
             toolContextTitle.textContent = "AI Generate controls";
-            toolContextDescription.textContent = "Generate 4 images from a prompt. Click a thumbnail to use it.";
+            toolContextDescription.textContent = "Generate images from a prompt. Click a thumbnail to use it.";
+        } else if (activeTool === "refine") {
+            toolContextTitle.textContent = "AI Refine controls";
+            toolContextDescription.textContent = "Edit the current image using a prompt. Click a thumbnail to use it.";
         } else {
             toolContextTitle.textContent = "Picker controls";
             toolContextDescription.textContent = "Sample a color and return to your previous tool.";
@@ -349,7 +359,7 @@
 
         animateContextRefresh();
 
-        canvas.style.cursor = activeTool === "text" ? "text" : activeTool === "generate" ? "default" : "crosshair";
+        canvas.style.cursor = activeTool === "text" ? "text" : (activeTool === "generate" || activeTool === "refine") ? "default" : "crosshair";
     }
 
     function applyZoom() {
@@ -1417,6 +1427,83 @@
         }
     }
 
+    async function runVertexRefine() {
+        if (isVertexOpRunning) {
+            return;
+        }
+        if (!originalImage) {
+            showTopNotice("Load an image first before refining.", "error", 4200);
+            return;
+        }
+
+        var prompt = aiRefinePromptPanel.value.trim();
+        if (!prompt) {
+            showTopNotice("Enter a prompt in the AI Refine panel.", "error", 4200);
+            return;
+        }
+
+        setVertexButtonsBusy(true);
+        showTopNotice("Refining image with AI...", "running");
+        try {
+            var imageBlob = await flattenToBlob();
+            var formData = new FormData();
+            formData.append("prompt", prompt);
+            formData.append("image", imageBlob, "pixelforge_refine_input.png");
+
+            var response = await fetch("/api/vertex/refine", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!response.ok) {
+                var message = "AI refine failed.";
+                try {
+                    var errData = await response.json();
+                    if (errData && errData.error) {
+                        message = errData.error;
+                    }
+                } catch (_ignored) {
+                    // noop
+                }
+                throw new Error(message);
+            }
+
+            var data = await response.json();
+            var images = data.images || [];
+            if (!images.length) {
+                throw new Error("No images returned by Vertex AI.");
+            }
+
+            var firstImg = await loadBase64AsImage(images[0]);
+            activateCanvas(firstImg);
+
+            generateThumbs.innerHTML = "";
+            var thumbEls = [];
+            images.forEach(function (b64) {
+                var thumbImg = document.createElement("img");
+                thumbImg.src = "data:image/png;base64," + b64;
+                thumbImg.title = "Click to use this image";
+                generateThumbs.appendChild(thumbImg);
+                thumbEls.push({ el: thumbImg, b64: b64 });
+            });
+            generateThumbs.hidden = false;
+            thumbEls[0].el.classList.add("selected");
+
+            thumbEls.forEach(function (item) {
+                item.el.addEventListener("click", function () {
+                    selectGeneratedImage(item.b64, item.el);
+                });
+            });
+
+            showTopNotice("AI refinement complete. " + images.length + " image(s) generated.", "success", 3000);
+        } catch (err) {
+            var msg = err && err.message ? err.message : "AI refine failed.";
+            showTopNotice(msg, "error", 6500);
+        } finally {
+            setVertexButtonsBusy(false);
+        }
+    }
+
     async function runVertexInpaint() {
         if (isVertexOpRunning) {
             return;
@@ -2221,6 +2308,10 @@
 
     aiGeneratePanelBtn.addEventListener("click", async function () {
         await runVertexGenerate();
+    });
+
+    aiRefinePanelBtn.addEventListener("click", async function () {
+        await runVertexRefine();
     });
 
     aiInpaintBtn.addEventListener("click", async function () {
