@@ -40,10 +40,10 @@ cd /home/mrmanager/pixelforge
 docker build -t pixelforge:latest .
 ```
 
-Run the container:
+Run the container (mount your Vertex credentials):
 
 ```bash
-docker run --rm -p 5000:5000 pixelforge:latest
+docker run --rm -p 5000:5000 -v /path/to/vertex.json:/app/vertex.json pixelforge:latest
 ```
 
 Then open http://127.0.0.1:5000
@@ -83,8 +83,12 @@ Transparency tool tip:
 
 Credentials:
 
-- Place your Vertex service account JSON at `vertex.json` in the project root.
-- The app reads this file on the backend (Docker uses `/app/vertex.json`).
+- Place your Vertex service account JSON somewhere on the host (e.g. `/etc/pixelforge/vertex.json`).
+- The app expects the file at `/app/vertex.json` inside the container. Mount it at runtime:
+
+```bash
+docker run --rm -p 5000:5000 -v /path/to/vertex.json:/app/vertex.json pixelforge:latest
+```
 
 ## Run with Docker Compose
 
