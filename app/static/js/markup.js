@@ -110,6 +110,7 @@
     var zoom100Btn = document.getElementById("zoom-100-btn");
     var zoomFitBtn = document.getElementById("zoom-fit-btn");
     var zoomLabel = document.getElementById("zoom-label");
+    var thumbDeleteBtn = document.getElementById("thumb-delete-btn");
 
     var originalImage = null;
     var zoomLevel = 1.0;
@@ -146,6 +147,9 @@
     var activeBrushCtx = null;
     var inpaintMaskCanvas = null;
     var inpaintMaskCtx = null;
+
+    var thumbSlots = [];
+    var activeThumbIndex = -1;
 
     var undoStack = [];
     var redoStack = [];
@@ -269,7 +273,7 @@
         aiRefinePanelBtn.disabled = isBusy;
         aiInpaintBtn.disabled = isBusy;
         aiGeneratePanelBtn.textContent = isBusy ? "Generating..." : "Generate Images";
-        aiRefinePanelBtn.textContent = isBusy ? "Refining..." : "Refine Images";
+        aiRefinePanelBtn.textContent = isBusy ? "Generating..." : "Generate from Reference";
         aiInpaintBtn.textContent = isBusy ? "Inpainting..." : "AI Inpaint";
     }
 
@@ -350,8 +354,8 @@
             toolContextTitle.textContent = "AI Generate controls";
             toolContextDescription.textContent = "Generate images from a prompt. Click a thumbnail to use it.";
         } else if (activeTool === "refine") {
-            toolContextTitle.textContent = "AI Refine controls";
-            toolContextDescription.textContent = "Edit the current image using a prompt. Click a thumbnail to use it.";
+            toolContextTitle.textContent = "Image to Image controls";
+            toolContextDescription.textContent = "Generate new images using the current image as a reference. Click a thumbnail to use it.";
         } else {
             toolContextTitle.textContent = "Picker controls";
             toolContextDescription.textContent = "Sample a color and return to your previous tool.";
@@ -421,9 +425,50 @@
         setZoom("fit");
     }
 
+    function appendThumbSlot(dataUrl) {
+        var slot = { el: null, dataUrl: dataUrl, savedState: null };
+        var thumbImg = document.createElement("img");
+        thumbImg.src = dataUrl;
+        thumbImg.title = "Click to use this image";
+        slot.el = thumbImg;
+        generateThumbs.appendChild(thumbImg);
+        thumbSlots.push(slot);
+        thumbImg.addEventListener("click", function () {
+            var idx = thumbSlots.indexOf(slot);
+            if (idx >= 0) { selectThumbSlot(idx); }
+        });
+        generateThumbs.hidden = false;
+        return thumbSlots.length - 1;
+    }
+
+    function updateThumbDeleteBtn() {
+        thumbDeleteBtn.hidden = thumbSlots.length === 0;
+    }
+
+    function deleteActiveThumb() {
+        if (activeThumbIndex < 0 || thumbSlots.length === 0) { return; }
+        if (!window.confirm("Delete this thumbnail?")) { return; }
+        var slot = thumbSlots[activeThumbIndex];
+        generateThumbs.removeChild(slot.el);
+        thumbSlots.splice(activeThumbIndex, 1);
+        if (thumbSlots.length === 0) {
+            generateThumbs.hidden = true;
+            activeThumbIndex = -1;
+            updateThumbDeleteBtn();
+            return;
+        }
+        var newIndex = Math.min(activeThumbIndex, thumbSlots.length - 1);
+        activeThumbIndex = -1;
+        selectThumbSlot(newIndex);
+        updateThumbDeleteBtn();
+    }
+
     function clearGenerateThumbs() {
         generateThumbs.hidden = true;
         generateThumbs.innerHTML = "";
+        thumbSlots = [];
+        activeThumbIndex = -1;
+        updateThumbDeleteBtn();
     }
 
     function loadImageFile(file) {
@@ -434,8 +479,12 @@
         reader.onload = function (e) {
             var img = new Image();
             img.onload = function () {
-                clearGenerateThumbs();
+                var dataUrl = e.target.result;
                 activateCanvas(img);
+                var idx = appendThumbSlot(dataUrl);
+                activeThumbIndex = idx;
+                thumbSlots[idx].el.classList.add("selected");
+                updateThumbDeleteBtn();
             };
             img.src = e.target.result;
         };
@@ -448,8 +497,12 @@
             var img = new Image();
             img.onload = function () {
                 URL.revokeObjectURL(url);
-                clearGenerateThumbs();
+                // Update current slot's saved state if there is an active slot,
+                // otherwise just activate without touching thumbs
                 activateCanvas(img);
+                if (activeThumbIndex >= 0 && activeThumbIndex < thumbSlots.length) {
+                    thumbSlots[activeThumbIndex].savedState = null;
+                }
                 resolve();
             };
             img.onerror = function () {
@@ -1345,14 +1398,76 @@
         });
     }
 
-    async function selectGeneratedImage(b64, thumbEl) {
-        var img = await loadBase64AsImage(b64);
-        activateCanvas(img);
-        generateThumbs.hidden = false;
-        Array.prototype.forEach.call(generateThumbs.querySelectorAll("img"), function (t) {
-            t.classList.remove("selected");
-        });
-        thumbEl.classList.add("selected");
+    function saveCurrentThumbState() {
+        if (activeThumbIndex < 0 || activeThumbIndex >= thumbSlots.length || !originalImage) {
+            return;
+        }
+        var slot = thumbSlots[activeThumbIndex];
+        // Store full state by reference — safe because switching replaces the current vars
+        slot.savedState = {
+            originalImage: originalImage,
+            layers: layers,
+            selectedLayerIndex: selectedLayerIndex,
+            undoStack: undoStack,
+            redoStack: redoStack,
+        };
+        // Update thumbnail to reflect current visual state
+        slot.el.src = buildCompositeCanvas().toDataURL("image/png");
+    }
+
+    function restoreThumbState(state) {
+        originalImage = state.originalImage;
+        layers = state.layers;
+        selectedLayerIndex = state.selectedLayerIndex;
+        undoStack = state.undoStack;
+        redoStack = state.redoStack;
+
+        canvas.width = originalImage.width;
+        canvas.height = originalImage.height;
+
+        activeBrushCanvas = document.createElement("canvas");
+        activeBrushCanvas.width = originalImage.width;
+        activeBrushCanvas.height = originalImage.height;
+        activeBrushCtx = activeBrushCanvas.getContext("2d");
+
+        inpaintMaskCanvas = document.createElement("canvas");
+        inpaintMaskCanvas.width = originalImage.width;
+        inpaintMaskCanvas.height = originalImage.height;
+        inpaintMaskCtx = inpaintMaskCanvas.getContext("2d");
+        inpaintMaskHasPaint = false;
+
+        clearCropState();
+        clearSelectionState();
+        render();
+        renderLayersPanel();
+        updateHistoryButtons();
+        syncResizeInputs();
+        setZoom("fit");
+    }
+
+    function selectThumbSlot(index) {
+        if (index === activeThumbIndex) {
+            return;
+        }
+        saveCurrentThumbState();
+        activeThumbIndex = index;
+        var slot = thumbSlots[index];
+
+        if (slot.savedState) {
+            restoreThumbState(slot.savedState);
+            generateThumbs.hidden = false;
+            thumbSlots.forEach(function (s) { s.el.classList.remove("selected"); });
+            slot.el.classList.add("selected");
+        } else {
+            var img = new Image();
+            img.onload = function () {
+                activateCanvas(img);
+                generateThumbs.hidden = false;
+                thumbSlots.forEach(function (s) { s.el.classList.remove("selected"); });
+                slot.el.classList.add("selected");
+            };
+            img.src = slot.dataUrl;
+        }
     }
 
     async function runVertexGenerate() {
@@ -1394,29 +1509,24 @@
                 throw new Error("No images returned by Vertex AI.");
             }
 
-            // Load first image as active canvas
-            var firstImg = await loadBase64AsImage(images[0]);
-            activateCanvas(firstImg);
+            // Save current thumb state before appending new ones
+            saveCurrentThumbState();
 
-            // Build thumbnail strip after activateCanvas so it isn't wiped
-            generateThumbs.innerHTML = "";
-            var thumbEls = [];
+            // Append new thumbnails
+            var firstNewIndex = -1;
             images.forEach(function (b64) {
-                var thumbImg = document.createElement("img");
-                thumbImg.src = "data:image/png;base64," + b64;
-                thumbImg.title = "Click to use this image";
-                generateThumbs.appendChild(thumbImg);
-                thumbEls.push({ el: thumbImg, b64: b64 });
+                var dataUrl = "data:image/png;base64," + b64;
+                var idx = appendThumbSlot(dataUrl);
+                if (firstNewIndex < 0) { firstNewIndex = idx; }
             });
-            generateThumbs.hidden = false;
-            thumbEls[0].el.classList.add("selected");
 
-            // Wire up thumbnail clicks
-            thumbEls.forEach(function (item) {
-                item.el.addEventListener("click", function () {
-                    selectGeneratedImage(item.b64, item.el);
-                });
-            });
+            // Activate first new image
+            var firstImg = await loadBase64AsImage(images[0]);
+            thumbSlots.forEach(function (s) { s.el.classList.remove("selected"); });
+            activeThumbIndex = firstNewIndex;
+            activateCanvas(firstImg);
+            thumbSlots[firstNewIndex].el.classList.add("selected");
+            updateThumbDeleteBtn();
 
             showTopNotice("AI generation complete. " + images.length + " images generated.", "success", 3000);
         } catch (err) {
@@ -1474,26 +1584,24 @@
                 throw new Error("No images returned by Vertex AI.");
             }
 
-            var firstImg = await loadBase64AsImage(images[0]);
-            activateCanvas(firstImg);
+            // Save current thumb state before appending new ones
+            saveCurrentThumbState();
 
-            generateThumbs.innerHTML = "";
-            var thumbEls = [];
+            // Append new thumbnails
+            var firstNewIndex = -1;
             images.forEach(function (b64) {
-                var thumbImg = document.createElement("img");
-                thumbImg.src = "data:image/png;base64," + b64;
-                thumbImg.title = "Click to use this image";
-                generateThumbs.appendChild(thumbImg);
-                thumbEls.push({ el: thumbImg, b64: b64 });
+                var dataUrl = "data:image/png;base64," + b64;
+                var idx = appendThumbSlot(dataUrl);
+                if (firstNewIndex < 0) { firstNewIndex = idx; }
             });
-            generateThumbs.hidden = false;
-            thumbEls[0].el.classList.add("selected");
 
-            thumbEls.forEach(function (item) {
-                item.el.addEventListener("click", function () {
-                    selectGeneratedImage(item.b64, item.el);
-                });
-            });
+            // Activate first new image
+            var firstImg = await loadBase64AsImage(images[0]);
+            thumbSlots.forEach(function (s) { s.el.classList.remove("selected"); });
+            activeThumbIndex = firstNewIndex;
+            activateCanvas(firstImg);
+            thumbSlots[firstNewIndex].el.classList.add("selected");
+            updateThumbDeleteBtn();
 
             showTopNotice("AI refinement complete. " + images.length + " image(s) generated.", "success", 3000);
         } catch (err) {
@@ -2291,6 +2399,34 @@
 
     zoomFitBtn.addEventListener("click", function () {
         setZoom("fit");
+    });
+
+    thumbDeleteBtn.addEventListener("click", deleteActiveThumb);
+
+    document.addEventListener("paste", function (e) {
+        var items = e.clipboardData && e.clipboardData.items;
+        if (!items) { return; }
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].type.startsWith("image/")) {
+                var blob = items[i].getAsFile();
+                if (!blob) { continue; }
+                var url = URL.createObjectURL(blob);
+                var img = new Image();
+                img.onload = function () {
+                    URL.revokeObjectURL(url);
+                    activateCanvas(img);
+                    var dataUrl = buildCompositeCanvas().toDataURL("image/png");
+                    var idx = appendThumbSlot(dataUrl);
+                    thumbSlots.forEach(function (s) { s.el.classList.remove("selected"); });
+                    activeThumbIndex = idx;
+                    thumbSlots[idx].el.classList.add("selected");
+                    updateThumbDeleteBtn();
+                };
+                img.src = url;
+                e.preventDefault();
+                break;
+            }
+        }
     });
 
     canvasWrap.addEventListener("wheel", function (e) {

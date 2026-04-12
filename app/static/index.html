@@ -35,6 +35,7 @@
                 <button id="zoom-in-btn" class="btn btn-small">+</button>
                 <button id="zoom-100-btn" class="btn btn-small">100%</button>
                 <button id="zoom-fit-btn" class="btn btn-small">Fit</button>
+                <button id="thumb-delete-btn" class="btn btn-small thumb-delete-btn" hidden title="Delete this thumbnail">✕ Delete</button>
             </div>
             <div id="generate-thumbs" class="generate-thumbs" hidden></div>
         </section>
@@ -54,7 +55,7 @@
                     <button id="tool-transparency" class="btn btn-small">Transparency</button>
                     <button id="tool-inpaint" class="btn btn-small">Inpaint</button>
                     <button id="tool-generate" class="btn btn-small">AI Generate</button>
-                    <button id="tool-refine" class="btn btn-small">AI Refine</button>
+                    <button id="tool-refine" class="btn btn-small">Img to Img</button>
                 </div>
             </div>
 
@@ -211,10 +212,10 @@
             </div>
 
             <div id="refine-settings" class="setting-group" hidden>
-                <div class="hint compact-hint">Describe how to change the current image.</div>
+                <div class="hint compact-hint">Uses the current image as a visual reference to generate new images. Describe a style, transformation, or activity — e.g. "paint this in watercolour", "make the person wave", "at night in the rain".</div>
                 <label>Prompt</label>
-                <textarea id="ai-refine-prompt-panel" rows="4" placeholder="Describe the changes you want to make..."></textarea>
-                <button id="ai-refine-panel-btn" class="btn btn-small">Refine Images</button>
+                <textarea id="ai-refine-prompt-panel" rows="4" placeholder="e.g. paint this in watercolour style..."></textarea>
+                <button id="ai-refine-panel-btn" class="btn btn-small">Generate from Reference</button>
             </div>
 
             <div id="generate-settings" class="setting-group" hidden>

@@ -393,6 +393,17 @@ hr {
     text-align: center;
 }
 
+.thumb-delete-btn {
+    margin-left: auto;
+    border-color: #7a3535;
+    color: #ffb3b3;
+}
+
+.thumb-delete-btn:hover {
+    border-color: #ff6b6b;
+    background: rgba(255, 75, 75, 0.12);
+}
+
 .generate-thumbs {
     display: flex;
     gap: 8px;
