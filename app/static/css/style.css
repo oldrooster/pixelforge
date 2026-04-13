@@ -224,6 +224,25 @@ body {
     color: #fff;
 }
 
+.aspect-ratio-row {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.aspect-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.ai-tools-label {
+    color: var(--accent);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
 input[type="range"],
 input[type="color"],
 input[type="number"],
@@ -281,6 +300,15 @@ hr {
 .layer-actions {
     display: flex;
     gap: 4px;
+}
+
+.layer-dragging {
+    opacity: 0.4;
+}
+
+.layer-drag-over {
+    outline: 2px dashed var(--accent);
+    outline-offset: -2px;
 }
 
 .layer-btn {

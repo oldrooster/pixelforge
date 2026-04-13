@@ -42,7 +42,7 @@
 
         <aside class="settings">
             <div class="setting-group">
-                <label>Tool</label>
+                <label>Tools</label>
                 <div class="tool-grid">
                     <button id="tool-brush" class="btn btn-small active">Brush</button>
                     <button id="tool-text" class="btn btn-small">Text</button>
@@ -53,7 +53,14 @@
                     <button id="tool-select" class="btn btn-small">Select</button>
                     <button id="tool-resize" class="btn btn-small">Resize</button>
                     <button id="tool-transparency" class="btn btn-small">Transparency</button>
+                    <button id="tool-wand" class="btn btn-small">Magic Wand</button>
+                </div>
+            </div>
+            <div class="setting-group">
+                <label class="ai-tools-label">AI Tools</label>
+                <div class="tool-grid">
                     <button id="tool-inpaint" class="btn btn-small">Inpaint</button>
+                    <button id="tool-remove" class="btn btn-small">Remove Object</button>
                     <button id="tool-generate" class="btn btn-small">AI Generate</button>
                     <button id="tool-refine" class="btn btn-small">Img to Img</button>
                 </div>
@@ -154,6 +161,12 @@
                 <button id="resize-apply-btn" class="btn btn-small">Apply Resize</button>
             </div>
 
+            <div id="wand-settings" class="setting-group" hidden>
+                <div class="hint compact-hint">Click to select a contiguous colour region. Creates a selection for use with Inpaint (Selection mode) or Remove Object.</div>
+                <label>Tolerance <span id="wand-tolerance-label">30</span></label>
+                <input id="wand-tolerance" type="range" min="0" max="128" value="30">
+            </div>
+
             <div id="transparency-settings" class="setting-group" hidden>
                 <label>Method</label>
                 <div id="transparency-method" class="method-row" role="radiogroup" aria-label="Transparency method">
@@ -211,17 +224,48 @@
                 <button id="ai-inpaint-btn" class="btn btn-small">AI Inpaint</button>
             </div>
 
+            <div id="remove-settings" class="setting-group" hidden>
+                <div class="hint compact-hint">Paint over the object you want removed. AI will fill the area with natural background. Uses the same mask as Inpaint.</div>
+                <label>Brush size <span id="remove-brush-size-label">28</span>px</label>
+                <input id="remove-brush-size" type="range" min="4" max="120" value="28">
+                <button id="remove-clear-mask-btn" class="btn btn-small">Clear Mask</button>
+                <button id="ai-remove-btn" class="btn btn-small">Remove Object</button>
+            </div>
+
             <div id="refine-settings" class="setting-group" hidden>
                 <div class="hint compact-hint">Uses the current image as a visual reference to generate new images. Describe a style, transformation, or activity — e.g. "paint this in watercolour", "make the person wave", "at night in the rain".</div>
                 <label>Prompt</label>
                 <textarea id="ai-refine-prompt-panel" rows="4" placeholder="e.g. paint this in watercolour style..."></textarea>
-                <button id="ai-refine-panel-btn" class="btn btn-small">Generate from Reference</button>
+                <div class="row-buttons">
+                    <button id="ai-describe-refine-btn" class="btn btn-small">✦ Describe</button>
+                    <button id="ai-refine-panel-btn" class="btn btn-small">Generate from Reference</button>
+                </div>
             </div>
 
             <div id="generate-settings" class="setting-group" hidden>
+                <div class="hint compact-hint">Generate new images from a text prompt, or upscale the current image.</div>
+                <button id="ai-upscale-btn" class="btn btn-small">AI Upscale Current Image</button>
+                <hr style="margin:4px 0">
+                <label>Model</label>
+                <select id="generate-model">
+                    <option value="imagen-4.0-generate-001">Imagen 4 (default)</option>
+                    <option value="imagen-4.0-ultra-generate-001">Imagen 4 Ultra (best quality)</option>
+                    <option value="imagen-3.0-generate-001">Imagen 3</option>
+                </select>
+                <label>Aspect ratio</label>
+                <div class="aspect-ratio-row">
+                    <button class="btn btn-small aspect-btn active" data-ar="1:1">1:1</button>
+                    <button class="btn btn-small aspect-btn" data-ar="4:3">4:3</button>
+                    <button class="btn btn-small aspect-btn" data-ar="16:9">16:9</button>
+                    <button class="btn btn-small aspect-btn" data-ar="9:16">9:16</button>
+                    <button class="btn btn-small aspect-btn" data-ar="3:4">3:4</button>
+                </div>
                 <label>Prompt</label>
                 <textarea id="ai-generate-prompt-panel" rows="4" placeholder="Describe the image you want to generate..."></textarea>
-                <button id="ai-generate-panel-btn" class="btn btn-small">Generate Images</button>
+                <div class="row-buttons">
+                    <button id="ai-describe-generate-btn" class="btn btn-small">✦ Describe</button>
+                    <button id="ai-generate-panel-btn" class="btn btn-small">Generate Images</button>
+                </div>
             </div>
 
             <hr>
@@ -238,11 +282,14 @@
                     <button id="undo-btn" class="btn btn-small" disabled>Undo</button>
                     <button id="redo-btn" class="btn btn-small" disabled>Redo</button>
                 </div>
-                <button id="clear-btn" class="btn btn-small">Clear Layers</button>
+                <div class="row-buttons">
+                    <button id="flatten-btn" class="btn btn-small">Flatten All</button>
+                    <button id="clear-btn" class="btn btn-small">Clear Layers</button>
+                </div>
             </div>
         </aside>
     </main>
 
-    <script src="/static/js/markup.js"></script>
+    <script type="module" src="/static/js/markup.js"></script>
 </body>
 </html>
