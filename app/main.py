@@ -427,20 +427,31 @@ def vertex_remove_object() -> Response | tuple[Response, int]:
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     mask_b64 = base64.b64encode(mask_bytes).decode("utf-8")
-
+    # White = area to remove, black = area to keep (MASK_MODE_USER_PROVIDED convention).
     instance = {
-        "prompt": "background",
+        "prompt": "",
         "referenceImages": [
-            {"referenceType": "REFERENCE_TYPE_RAW", "referenceId": 1, "referenceImage": {"bytesBase64Encoded": image_b64}},
+            {
+                "referenceType": "REFERENCE_TYPE_RAW",
+                "referenceId": 1,
+                "referenceImage": {"bytesBase64Encoded": image_b64},
+            },
             {
                 "referenceType": "REFERENCE_TYPE_MASK",
                 "referenceId": 2,
                 "referenceImage": {"bytesBase64Encoded": mask_b64},
-                "maskImageConfig": {"maskMode": "MASK_MODE_USER_PROVIDED"},
+                "maskImageConfig": {
+                    "maskMode": "MASK_MODE_USER_PROVIDED",
+                    "dilation": 0.01,
+                },
             },
         ],
     }
-    parameters = {"sampleCount": 1, "editConfig": {"editMode": "inpainting-remove"}}
+    parameters = {
+        "editMode": "EDIT_MODE_INPAINT_REMOVAL",
+        "editConfig": {"baseSteps": 12},
+        "sampleCount": 1,
+    }
 
     try:
         prediction = _vertex_predict(
@@ -477,22 +488,31 @@ def vertex_inpaint_image() -> Response | tuple[Response, int]:
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     mask_b64 = base64.b64encode(mask_bytes).decode("utf-8")
-    img_plain = {"bytesBase64Encoded": image_b64}
-    msk_plain = {"bytesBase64Encoded": mask_b64}
 
     instance = {
         "prompt": prompt,
         "referenceImages": [
-            {"referenceType": "REFERENCE_TYPE_RAW", "referenceId": 1, "referenceImage": img_plain},
+            {
+                "referenceType": "REFERENCE_TYPE_RAW",
+                "referenceId": 1,
+                "referenceImage": {"bytesBase64Encoded": image_b64},
+            },
             {
                 "referenceType": "REFERENCE_TYPE_MASK",
                 "referenceId": 2,
-                "referenceImage": msk_plain,
-                "maskImageConfig": {"maskMode": "MASK_MODE_USER_PROVIDED"},
+                "referenceImage": {"bytesBase64Encoded": mask_b64},
+                "maskImageConfig": {
+                    "maskMode": "MASK_MODE_USER_PROVIDED",
+                    "dilation": 0.01,
+                },
             },
         ],
     }
-    parameters = {"sampleCount": 1, "editConfig": {"editMode": "inpainting-insert"}}
+    parameters = {
+        "editMode": "EDIT_MODE_INPAINT_INSERTION",
+        "editConfig": {"baseSteps": 12},
+        "sampleCount": 1,
+    }
 
     try:
         prediction = _vertex_predict(
