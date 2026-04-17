@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -53,15 +54,15 @@ _vertex_project_id: str | None = None
 class VertexConfig:
     location: str
     generate_model: str
-    inpaint_model: str
+    upscale_model: str
     credentials_path: Path
 
     @classmethod
     def from_env(cls) -> "VertexConfig":
         return cls(
             location=os.getenv("VERTEX_LOCATION", "us-central1"),
-            generate_model=os.getenv("VERTEX_GENERATE_MODEL", "imagen-4.0-generate-001"),
-            inpaint_model=os.getenv("VERTEX_INPAINT_MODEL", "imagen-3.0-capability-001"),
+            generate_model=os.getenv("VERTEX_GENERATE_MODEL", "gemini-2.5-flash-image"),
+            upscale_model=os.getenv("VERTEX_UPSCALE_MODEL", "imagen-4.0-upscale-preview"),
             credentials_path=Path(
                 os.getenv(
                     "VERTEX_CREDENTIALS_PATH",
@@ -194,6 +195,62 @@ def _extract_all_prediction_images_b64(prediction_response: dict) -> list[str]:
     return results
 
 
+def _vertex_generate_content(
+    model_name: str,
+    contents: list[dict],
+    generation_config: dict,
+    timeout: int = 120,
+) -> dict:
+    """Call the Vertex AI generateContent endpoint (Gemini image generation models)."""
+    token, project_id = _get_vertex_access_token_and_project()
+    endpoint = (
+        f"https://{vertex_cfg.location}-aiplatform.googleapis.com/v1/projects/{project_id}/"
+        f"locations/{vertex_cfg.location}/publishers/google/models/{model_name}:generateContent"
+    )
+    response = requests.post(
+        endpoint,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"contents": contents, "generationConfig": generation_config},
+        timeout=timeout,
+    )
+    if not response.ok:
+        raise RuntimeError(
+            f"Vertex generateContent failed ({response.status_code}): {response.text[:600]}"
+        )
+    return response.json()
+
+
+def _extract_gemini_images_b64(response: dict) -> list[str]:
+    """Extract all base64-encoded images from a Gemini generateContent response."""
+    images: list[str] = []
+    for candidate in response.get("candidates", []):
+        for part in candidate.get("content", {}).get("parts", []):
+            inline = part.get("inlineData")
+            if inline and inline.get("data"):
+                images.append(inline["data"])
+    return images
+
+
+def _annotate_image_with_mask(
+    image_bytes: bytes,
+    mask_bytes: bytes,
+    color: tuple[int, int, int],
+    alpha: int = 160,
+) -> bytes:
+    """Composite a semi-transparent coloured overlay on the masked region so Gemini can
+    identify the target area visually (since it has no native mask support)."""
+    orig = Image.open(BytesIO(image_bytes)).convert("RGBA")
+    mask_gray = Image.open(BytesIO(mask_bytes)).convert("L")
+    overlay = Image.new("RGBA", orig.size, color + (alpha,))
+    # Scale mask values to use as overlay alpha: white=overlay at `alpha`, black=transparent
+    scaled_alpha = mask_gray.point(lambda p: int(p * alpha / 255))
+    overlay.putalpha(scaled_alpha)
+    result = Image.alpha_composite(orig, overlay).convert("RGB")
+    buf = BytesIO()
+    result.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 @app.get("/health")
 def health() -> Response:
     return jsonify({"status": "ok"})
@@ -242,9 +299,8 @@ def remove_background() -> Response | tuple[Response, int]:
 
 
 _ALLOWED_GENERATE_MODELS = {
-    "imagen-4.0-generate-001",
-    "imagen-4.0-ultra-generate-001",
-    "imagen-3.0-generate-001",
+    "gemini-2.5-flash-image",
+    "gemini-3.1-flash-image-preview",
 }
 
 _ALLOWED_ASPECT_RATIOS = {"1:1", "4:3", "16:9", "9:16", "3:4"}
@@ -265,20 +321,29 @@ def vertex_generate_image() -> Response | tuple[Response, int]:
     if aspect_ratio not in _ALLOWED_ASPECT_RATIOS:
         aspect_ratio = "1:1"
 
+    contents = [{"role": "user", "parts": [{"text": prompt}]}]
+    gen_config = {
+        "responseModalities": ["IMAGE"],
+        "imageConfig": {"aspectRatio": aspect_ratio},
+    }
+
     try:
-        prediction = _vertex_predict(
-            model,
-            instances=[{"prompt": prompt}],
-            parameters={
-                "sampleCount": 4,
-                "aspectRatio": aspect_ratio,
-                "outputOptions": {"mimeType": "image/png"},
-            },
-        )
-        raw_predictions = prediction.get("predictions") or []
-        logger.info("[vertex/generate] requested 4, got %d predictions back", len(raw_predictions))
-        images_b64 = _extract_all_prediction_images_b64(prediction)
-        logger.info("[vertex/generate] extracted %d images", len(images_b64))
+        def _one():
+            imgs = _extract_gemini_images_b64(
+                _vertex_generate_content(model, contents, gen_config, timeout=120)
+            )
+            return imgs[0] if imgs else None
+
+        images_b64: list[str] = []
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for img in as_completed([pool.submit(_one) for _ in range(4)]):
+                result = img.result()
+                if result:
+                    images_b64.append(result)
+
+        if not images_b64:
+            raise ValueError("No images returned by Gemini.")
+        logger.info("[vertex/generate] got %d images", len(images_b64))
     except Exception as exc:
         return api_error(f"Vertex generate failed: {exc}", 500)
 
@@ -301,23 +366,34 @@ def vertex_refine_image() -> Response | tuple[Response, int]:
         return api_error(str(exc))
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-    img_plain = {"bytesBase64Encoded": image_b64}
-
-    instance = {
-        "prompt": prompt,
-        "referenceImages": [
-            {"referenceType": "REFERENCE_TYPE_RAW", "referenceId": 1, "referenceImage": img_plain},
+    contents = [{
+        "role": "user",
+        "parts": [
+            {"inlineData": {"mimeType": "image/png", "data": image_b64}},
+            {"text": prompt},
         ],
-    }
-    parameters = {"sampleCount": 4, "editConfig": {"editMode": "inpainting-insert"}}
+    }]
+    gen_config = {"responseModalities": ["IMAGE"]}
 
     try:
-        prediction = _vertex_predict(
-            vertex_cfg.inpaint_model, instances=[instance], parameters=parameters, timeout=120
-        )
-        raw = prediction.get("predictions") or []
-        logger.info("[vertex/refine] got %d predictions", len(raw))
-        images_b64 = _extract_all_prediction_images_b64(prediction)
+        model = vertex_cfg.generate_model
+
+        def _one():
+            imgs = _extract_gemini_images_b64(
+                _vertex_generate_content(model, contents, gen_config, timeout=120)
+            )
+            return imgs[0] if imgs else None
+
+        images_b64: list[str] = []
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for fut in as_completed([pool.submit(_one) for _ in range(4)]):
+                result = fut.result()
+                if result:
+                    images_b64.append(result)
+
+        if not images_b64:
+            raise ValueError("No images returned by Gemini.")
+        logger.info("[vertex/refine] got %d images", len(images_b64))
         return jsonify({"images": images_b64})
     except Exception as exc:
         return api_error(f"Vertex refine failed: {exc}", 500)
@@ -336,21 +412,16 @@ def describe_image() -> Response | tuple[Response, int]:
         return api_error(str(exc))
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-    if image_bytes[:4] == _PNG_MAGIC:
-        mime_type = "image/png"
-    elif image_bytes[:3] == _JPEG_MAGIC[:3]:
-        mime_type = "image/jpeg"
-    else:
-        mime_type = "image/webp"
+    mime_type = (
+        "image/png" if image_bytes[:4] == _PNG_MAGIC
+        else "image/jpeg" if image_bytes[:3] == _JPEG_MAGIC[:3]
+        else "image/webp"
+    )
 
     try:
-        token, project_id = _get_vertex_access_token_and_project()
-        endpoint = (
-            f"https://{vertex_cfg.location}-aiplatform.googleapis.com/v1/projects/{project_id}/"
-            f"locations/{vertex_cfg.location}/publishers/google/models/gemini-2.0-flash:generateContent"
-        )
-        payload = {
-            "contents": [{
+        result = _vertex_generate_content(
+            "gemini-2.0-flash",
+            contents=[{
                 "role": "user",
                 "parts": [
                     {"inlineData": {"mimeType": mime_type, "data": image_b64}},
@@ -361,17 +432,9 @@ def describe_image() -> Response | tuple[Response, int]:
                     )},
                 ],
             }],
-            "generationConfig": {"maxOutputTokens": 256, "temperature": 0.4},
-        }
-        response = requests.post(
-            endpoint,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json=payload,
+            generation_config={"maxOutputTokens": 256, "temperature": 0.4},
             timeout=30,
         )
-        if not response.ok:
-            raise RuntimeError(f"Gemini describe failed ({response.status_code}): {response.text[:400]}")
-        result = response.json()
         suggestion = result["candidates"][0]["content"]["parts"][0]["text"].strip()
         logger.info("[describe] generated prompt suggestion (%d chars)", len(suggestion))
         return jsonify({"prompt": suggestion})
@@ -394,9 +457,9 @@ def vertex_upscale_image() -> Response | tuple[Response, int]:
 
     try:
         prediction = _vertex_predict(
-            "imagegeneration@006",
+            vertex_cfg.upscale_model,
             instances=[{"prompt": "", "image": {"bytesBase64Encoded": image_b64}}],
-            parameters={"sampleCount": 1, "upscaleConfig": {"upscaleFactor": "x2"}},
+            parameters={"mode": "upscale", "sampleCount": 1, "upscaleConfig": {"upscaleFactor": "x2"}},
             timeout=180,
         )
         output_bytes = _extract_prediction_image_bytes(prediction)
@@ -413,7 +476,7 @@ def vertex_upscale_image() -> Response | tuple[Response, int]:
 
 @app.post("/api/vertex/remove")
 def vertex_remove_object() -> Response | tuple[Response, int]:
-    """Remove a masked object using Vertex inpainting-remove mode."""
+    """Remove a painted object using Gemini image editing (mask rendered as red overlay)."""
     image_file = request.files.get("image")
     mask_file = request.files.get("mask")
     if image_file is None or mask_file is None:
@@ -425,39 +488,33 @@ def vertex_remove_object() -> Response | tuple[Response, int]:
     except ValueError as exc:
         return api_error(str(exc))
 
-    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-    mask_b64 = base64.b64encode(mask_bytes).decode("utf-8")
-    # White = area to remove, black = area to keep (MASK_MODE_USER_PROVIDED convention).
-    instance = {
-        "prompt": "",
-        "referenceImages": [
-            {
-                "referenceType": "REFERENCE_TYPE_RAW",
-                "referenceId": 1,
-                "referenceImage": {"bytesBase64Encoded": image_b64},
-            },
-            {
-                "referenceType": "REFERENCE_TYPE_MASK",
-                "referenceId": 2,
-                "referenceImage": {"bytesBase64Encoded": mask_b64},
-                "maskImageConfig": {
-                    "maskMode": "MASK_MODE_USER_PROVIDED",
-                    "dilation": 0.01,
-                },
-            },
+    try:
+        annotated_bytes = _annotate_image_with_mask(image_bytes, mask_bytes, color=(220, 40, 40), alpha=180)
+    except Exception as exc:
+        return api_error(f"Mask annotation failed: {exc}", 500)
+
+    annotated_b64 = base64.b64encode(annotated_bytes).decode("utf-8")
+    contents = [{
+        "role": "user",
+        "parts": [
+            {"inlineData": {"mimeType": "image/png", "data": annotated_b64}},
+            {"text": (
+                "Remove the content highlighted in red from this image. "
+                "Fill the removed area naturally with the surrounding background, "
+                "textures, and patterns so the result looks seamless. "
+                "Keep everything outside the red region exactly as it is."
+            )},
         ],
-    }
-    parameters = {
-        "editMode": "EDIT_MODE_INPAINT_REMOVAL",
-        "editConfig": {"baseSteps": 12},
-        "sampleCount": 1,
-    }
+    }]
 
     try:
-        prediction = _vertex_predict(
-            vertex_cfg.inpaint_model, instances=[instance], parameters=parameters, timeout=120
+        result = _vertex_generate_content(
+            vertex_cfg.generate_model, contents, {"responseModalities": ["IMAGE"]}, timeout=120
         )
-        output_bytes = _extract_prediction_image_bytes(prediction)
+        imgs = _extract_gemini_images_b64(result)
+        if not imgs:
+            raise ValueError("No image returned by Gemini.")
+        output_bytes = base64.b64decode(imgs[0])
         logger.info("[vertex/remove] success")
         return send_file(
             BytesIO(output_bytes),
@@ -471,6 +528,7 @@ def vertex_remove_object() -> Response | tuple[Response, int]:
 
 @app.post("/api/vertex/inpaint")
 def vertex_inpaint_image() -> Response | tuple[Response, int]:
+    """Inpaint a selected region using Gemini image editing (mask rendered as blue overlay)."""
     prompt = (request.form.get("prompt") or "").strip()
     if not prompt:
         return api_error("Prompt is required")
@@ -486,39 +544,32 @@ def vertex_inpaint_image() -> Response | tuple[Response, int]:
     except ValueError as exc:
         return api_error(str(exc))
 
-    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-    mask_b64 = base64.b64encode(mask_bytes).decode("utf-8")
+    try:
+        annotated_bytes = _annotate_image_with_mask(image_bytes, mask_bytes, color=(30, 100, 255), alpha=160)
+    except Exception as exc:
+        return api_error(f"Mask annotation failed: {exc}", 500)
 
-    instance = {
-        "prompt": prompt,
-        "referenceImages": [
-            {
-                "referenceType": "REFERENCE_TYPE_RAW",
-                "referenceId": 1,
-                "referenceImage": {"bytesBase64Encoded": image_b64},
-            },
-            {
-                "referenceType": "REFERENCE_TYPE_MASK",
-                "referenceId": 2,
-                "referenceImage": {"bytesBase64Encoded": mask_b64},
-                "maskImageConfig": {
-                    "maskMode": "MASK_MODE_USER_PROVIDED",
-                    "dilation": 0.01,
-                },
-            },
+    annotated_b64 = base64.b64encode(annotated_bytes).decode("utf-8")
+    contents = [{
+        "role": "user",
+        "parts": [
+            {"inlineData": {"mimeType": "image/png", "data": annotated_b64}},
+            {"text": (
+                f"Edit only the blue-highlighted region of this image. "
+                f"Replace the blue region with: {prompt}. "
+                f"Keep everything outside the blue region exactly as it is."
+            )},
         ],
-    }
-    parameters = {
-        "editMode": "EDIT_MODE_INPAINT_INSERTION",
-        "editConfig": {"baseSteps": 12},
-        "sampleCount": 1,
-    }
+    }]
 
     try:
-        prediction = _vertex_predict(
-            vertex_cfg.inpaint_model, instances=[instance], parameters=parameters, timeout=120
+        result = _vertex_generate_content(
+            vertex_cfg.generate_model, contents, {"responseModalities": ["IMAGE"]}, timeout=120
         )
-        output_bytes = _extract_prediction_image_bytes(prediction)
+        imgs = _extract_gemini_images_b64(result)
+        if not imgs:
+            raise ValueError("No image returned by Gemini.")
+        output_bytes = base64.b64decode(imgs[0])
         logger.info("[vertex/inpaint] success")
         return send_file(
             BytesIO(output_bytes),
