@@ -7,6 +7,7 @@ import {
     setTool, updateToolSettingsForActiveTool, updateShapeFillVisibility,
     updateTransparencyMethodUI, updateInpaintMaskModeUI, toggleInpaintMaskMode,
     showTopNotice, dismissTopNotice, initToolPanels,
+    toggleNotifPanel, clearAllNotifications,
 } from "./ui.js";
 import {
     render, setZoom, applySelectionMove, applyCrop, applyResize, deleteSelection,
@@ -22,7 +23,8 @@ import {
     flattenAllLayers,
 } from "./layers.js";
 import { loadImageFile, deleteActiveThumb } from "./thumbs.js";
-import { runVertexGenerate, runVertexRefine, runVertexInpaint, runAiObjectRemoval, runAiUpscale, runAiDescribe, runAiBackgroundRemoval } from "./api.js";
+import { runVertexGenerate, runVertexRefine, runVertexInpaint, runAiObjectRemoval, runAiDescribe, runAiBackgroundRemoval, runVideoGenerate } from "./api.js";
+import { openSessionBrowser, saveCurrentSession, closeSessionModal } from "./sessions.js";
 
 // ---------------------------------------------------------------------------
 // Startup
@@ -35,9 +37,23 @@ updateInpaintMaskModeUI();
 showTopNotice("AI idle.", "success", 1500);
 
 // ---------------------------------------------------------------------------
-// Top notice close
+// Notification bell
 // ---------------------------------------------------------------------------
-dom.topNoticeClose.addEventListener("click", dismissTopNotice);
+dom.notifBell.addEventListener("click", e => { e.stopPropagation(); toggleNotifPanel(); });
+dom.notifClearAll.addEventListener("click", e => { e.stopPropagation(); clearAllNotifications(); });
+document.addEventListener("click", e => {
+    if (state.notifPanelOpen && !dom.notifBellWrap.contains(e.target)) { toggleNotifPanel(); }
+});
+
+// ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+dom.sessionsBtn.addEventListener("click", openSessionBrowser);
+dom.sessionSaveBtn.addEventListener("click", saveCurrentSession);
+dom.sessionsModalClose.addEventListener("click", closeSessionModal);
+dom.sessionsModal.addEventListener("click", e => {
+    if (e.target === dom.sessionsModal) { closeSessionModal(); }
+});
 
 // ---------------------------------------------------------------------------
 // Tool buttons
@@ -58,6 +74,8 @@ dom.strokeSize.addEventListener("input", () => { dom.strokeSizeLabel.textContent
 dom.inpaintBrushSize.addEventListener("input", () => { dom.inpaintBrushSizeLabel.textContent = dom.inpaintBrushSize.value; });
 dom.removeBrushSize.addEventListener("input", () => { dom.removeBrushSizeLabel.textContent = dom.removeBrushSize.value; });
 dom.wandTolerance.addEventListener("input", () => { dom.wandToleranceLabel.textContent = dom.wandTolerance.value; });
+dom.generateCount.addEventListener("input", () => { dom.generateCountLabel.textContent = dom.generateCount.value; });
+dom.refineCount.addEventListener("input", () => { dom.refineCountLabel.textContent = dom.refineCount.value; });
 
 // ---------------------------------------------------------------------------
 // Shape / transparency / inpaint sub-controls
@@ -160,9 +178,23 @@ dom.aspectBtns.forEach(btn => {
     });
 });
 dom.aiRemoveBtn.addEventListener("click", () => runAiObjectRemoval());
-dom.aiUpscaleBtn.addEventListener("click", () => runAiUpscale());
 dom.aiDescribeRefineBtn.addEventListener("click", () => runAiDescribe(dom.aiRefinePromptPanel));
 dom.aiDescribeGenerateBtn.addEventListener("click", () => runAiDescribe(dom.aiGeneratePromptPanel));
+dom.aiVideoBtn.addEventListener("click", () => runVideoGenerate());
+
+// Video duration/aspect toggle buttons
+dom.videoDurationBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+        dom.videoDurationBtns.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+    });
+});
+dom.videoAspectBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+        dom.videoAspectBtns.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+    });
+});
 
 // ---------------------------------------------------------------------------
 // Download

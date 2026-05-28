@@ -12,13 +12,43 @@
         <div class="header-actions">
             <label class="btn btn-primary" for="image-input">Load Image</label>
             <input id="image-input" type="file" accept=".png,.jpg,.jpeg,.webp" hidden>
+            <button id="sessions-btn" class="btn btn-secondary">Sessions</button>
             <button id="download-btn" class="btn btn-secondary" disabled>Download</button>
+
+            <!-- Notification bell -->
+            <div class="notif-bell-wrap" id="notif-bell-wrap">
+                <button id="notif-bell" class="notif-bell" aria-label="Notifications" title="Notifications">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                    </svg>
+                    <span id="notif-badge" class="notif-badge" hidden>0</span>
+                </button>
+                <div id="notif-panel" class="notif-panel" hidden>
+                    <div class="notif-panel-header">
+                        <span class="notif-panel-title">Notifications</span>
+                        <button id="notif-clear-all" class="btn btn-small">Clear all</button>
+                    </div>
+                    <div id="notif-list" class="notif-list">
+                        <div class="notif-empty">No notifications</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </header>
 
-    <div id="top-notice" class="top-notice" hidden>
-        <span id="top-notice-text"></span>
-        <button id="top-notice-close" class="top-notice-close" aria-label="Dismiss notice">x</button>
+    <!-- Sessions modal -->
+    <div id="sessions-modal" class="modal-overlay" hidden>
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">Sessions</h2>
+                <button id="sessions-modal-close" class="modal-close" aria-label="Close">✕</button>
+            </div>
+            <div class="modal-body">
+                <button id="session-save-btn" class="btn btn-primary" style="margin-bottom:12px">Save Current Session</button>
+                <div id="sessions-grid" class="sessions-grid"></div>
+            </div>
+        </div>
     </div>
 
     <main class="markup-layout">
@@ -36,6 +66,13 @@
                 <button id="zoom-100-btn" class="btn btn-small">100%</button>
                 <button id="zoom-fit-btn" class="btn btn-small">Fit</button>
                 <button id="thumb-delete-btn" class="btn btn-small thumb-delete-btn" hidden title="Delete this thumbnail">✕ Delete</button>
+            </div>
+            <!-- Video result -->
+            <div id="video-result" class="video-result" hidden>
+                <video id="video-result-player" class="video-player" controls loop playsinline></video>
+                <div class="video-result-actions">
+                    <button id="video-download-btn" class="btn btn-primary">Download Video</button>
+                </div>
             </div>
             <div id="generate-thumbs" class="generate-thumbs" hidden></div>
         </section>
@@ -63,6 +100,7 @@
                     <button id="tool-remove" class="btn btn-small">Remove Object</button>
                     <button id="tool-generate" class="btn btn-small">AI Generate</button>
                     <button id="tool-refine" class="btn btn-small">Img to Img</button>
+                    <button id="tool-video" class="btn btn-small">Video</button>
                 </div>
             </div>
 
@@ -197,7 +235,7 @@
             </div>
 
             <div id="inpaint-settings" class="setting-group" hidden>
-                <div class="hint compact-hint">Choose mask source for Vertex AI inpainting.</div>
+                <div class="hint compact-hint">Choose mask source for inpainting.</div>
                 <div id="inpaint-mask-mode" class="method-row" role="radiogroup" aria-label="Inpaint mask mode">
                     <label class="method-option">
                         <input type="radio" name="inpaint-mask-mode" value="selection" checked>
@@ -234,6 +272,8 @@
 
             <div id="refine-settings" class="setting-group" hidden>
                 <div class="hint compact-hint">Uses the current image as a visual reference to generate new images. Describe a style, transformation, or activity — e.g. "paint this in watercolour", "make the person wave", "at night in the rain".</div>
+                <label>Images <span id="refine-count-label">4</span></label>
+                <input id="refine-count" type="range" min="1" max="4" value="4">
                 <label>Prompt</label>
                 <textarea id="ai-refine-prompt-panel" rows="4" placeholder="e.g. paint this in watercolour style..."></textarea>
                 <div class="row-buttons">
@@ -243,14 +283,15 @@
             </div>
 
             <div id="generate-settings" class="setting-group" hidden>
-                <div class="hint compact-hint">Generate new images from a text prompt, or upscale the current image.</div>
-                <button id="ai-upscale-btn" class="btn btn-small">AI Upscale Current Image</button>
-                <hr style="margin:4px 0">
+                <div class="hint compact-hint">Generate new images from a text prompt.</div>
                 <label>Model</label>
                 <select id="generate-model">
-                    <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image (default)</option>
-                    <option value="gemini-3.1-flash-image-preview">Gemini 3.1 Flash Image (preview)</option>
+                    <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
+                    <option value="gemini-3.1-flash-image-preview" selected>Gemini 3.1 Flash Image</option>
+                    <option value="gemini-3-pro-image-preview">Gemini 3 Pro Image (best quality)</option>
                 </select>
+                <label>Images <span id="generate-count-label">4</span></label>
+                <input id="generate-count" type="range" min="1" max="4" value="4">
                 <label>Aspect ratio</label>
                 <div class="aspect-ratio-row">
                     <button class="btn btn-small aspect-btn active" data-ar="1:1">1:1</button>
@@ -265,6 +306,30 @@
                     <button id="ai-describe-generate-btn" class="btn btn-small">✦ Describe</button>
                     <button id="ai-generate-panel-btn" class="btn btn-small">Generate Images</button>
                 </div>
+            </div>
+
+            <div id="video-settings" class="setting-group" hidden>
+                <div class="hint compact-hint">Generate a video from the current image. Veo 2 produces silent video; Veo 3 generates video with audio.</div>
+                <label>Model</label>
+                <select id="video-model">
+                    <option value="veo-2.0-generate-001">Veo 2 (no audio)</option>
+                    <option value="veo-3.0-generate-001">Veo 3 (with audio)</option>
+                </select>
+                <label>Duration</label>
+                <div class="aspect-ratio-row">
+                    <button class="btn btn-small video-dur-btn active" data-dur="4">4s</button>
+                    <button class="btn btn-small video-dur-btn" data-dur="6">6s</button>
+                    <button class="btn btn-small video-dur-btn" data-dur="8">8s</button>
+                </div>
+                <label>Aspect ratio</label>
+                <div class="aspect-ratio-row">
+                    <button class="btn btn-small video-ar-btn active" data-ar="16:9">16:9</button>
+                    <button class="btn btn-small video-ar-btn" data-ar="9:16">9:16</button>
+                    <button class="btn btn-small video-ar-btn" data-ar="1:1">1:1</button>
+                </div>
+                <label>Prompt</label>
+                <textarea id="ai-video-prompt" rows="4" placeholder="Describe the motion and scene, e.g. 'the camera slowly pans right as clouds drift across the sky'..."></textarea>
+                <button id="ai-video-btn" class="btn btn-small">Generate Video</button>
             </div>
 
             <hr>

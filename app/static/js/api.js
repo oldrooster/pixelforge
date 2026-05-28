@@ -2,7 +2,7 @@
 
 import { state } from "./state.js";
 import { dom } from "./dom.js";
-import { showTopNotice, setAiStatus, setAiButtonBusy, setVertexButtonsBusy } from "./ui.js";
+import { showTopNotice, setAiStatus, setAiButtonBusy, setVertexButtonsBusy, setVideoButtonBusy } from "./ui.js";
 import { flattenToBlob, activateCanvas, getActiveSelectionRect, clampRectToCanvas, createSelectionMaskBlob, createInpaintBrushMaskBlob, clearSelectionState, clearInpaintMask, replaceWithRasterCanvas } from "./canvas.js";
 import { appendThumbSlot, saveCurrentThumbState, loadBase64AsImage, updateThumbDeleteBtn, applyBlobAsCanvas } from "./thumbs.js";
 
@@ -54,6 +54,7 @@ export async function runVertexGenerate() {
     const model = dom.generateModel.value;
     const activeAr = dom.aspectBtns.find(b => b.classList.contains("active"));
     const aspectRatio = activeAr ? activeAr.dataset.ar : "1:1";
+    const count = parseInt(dom.generateCount.value, 10) || 4;
 
     setVertexButtonsBusy(true);
     showTopNotice("Generating images with AI...", "running");
@@ -61,7 +62,7 @@ export async function runVertexGenerate() {
         const response = await fetch("/api/vertex/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt, model, aspectRatio }),
+            body: JSON.stringify({ prompt, model, aspectRatio, count }),
         });
 
         if (!response.ok) {
@@ -96,12 +97,15 @@ export async function runVertexRefine() {
         return;
     }
 
+    const count = parseInt(dom.refineCount.value, 10) || 4;
+
     setVertexButtonsBusy(true);
     showTopNotice("Refining image with AI...", "running");
     try {
         const imageBlob = await flattenToBlob();
         const formData = new FormData();
         formData.append("prompt", prompt);
+        formData.append("count", count);
         formData.append("image", imageBlob, "pixelforge_refine_input.png");
 
         const response = await fetch("/api/vertex/refine", { method: "POST", body: formData });
@@ -185,39 +189,6 @@ export async function runVertexInpaint() {
 }
 
 // ---------------------------------------------------------------------------
-// AI Upscale (F11)
-// ---------------------------------------------------------------------------
-export async function runAiUpscale() {
-    if (state.isVertexOpRunning) { return; }
-    if (!state.originalImage) {
-        showTopNotice("Load an image first.", "error", 4200);
-        return;
-    }
-
-    setVertexButtonsBusy(true);
-    showTopNotice("Upscaling image with AI...", "running");
-    try {
-        const imageBlob = await flattenToBlob();
-        const formData = new FormData();
-        formData.append("image", imageBlob, "pixelforge_upscale_input.png");
-
-        const response = await fetch("/api/vertex/upscale", { method: "POST", body: formData });
-
-        if (!response.ok) {
-            throw new Error(await extractErrorMessage(response, "AI upscale failed."));
-        }
-
-        const outBlob = await response.blob();
-        await applyBlobAsCanvas(outBlob);
-        showTopNotice("Upscale complete.", "success", 3000);
-    } catch (err) {
-        showTopNotice(err?.message ?? "AI upscale failed.", "error", 6500);
-    } finally {
-        setVertexButtonsBusy(false);
-    }
-}
-
-// ---------------------------------------------------------------------------
 // AI Object Removal
 // ---------------------------------------------------------------------------
 export async function runAiObjectRemoval() {
@@ -259,7 +230,7 @@ export async function runAiObjectRemoval() {
 }
 
 // ---------------------------------------------------------------------------
-// AI Describe / Auto-prompt (F13)
+// AI Describe / Auto-prompt
 // ---------------------------------------------------------------------------
 export async function runAiDescribe(targetTextarea) {
     if (state.isVertexOpRunning) { return; }
@@ -356,4 +327,107 @@ export async function runAiBackgroundRemoval() {
         window.clearTimeout(longRunNotice);
         setAiButtonBusy(false);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Video Generation (Veo)
+// ---------------------------------------------------------------------------
+let _videoPollingInterval = null;
+
+export async function runVideoGenerate() {
+    if (state.isVideoRunning) { return; }
+    if (!state.originalImage) {
+        showTopNotice("Load an image first.", "error", 4200);
+        return;
+    }
+
+    const prompt = dom.aiVideoPrompt.value.trim();
+    if (!prompt) {
+        showTopNotice("Enter a prompt for the video.", "error", 4200);
+        return;
+    }
+
+    const model = dom.videoModel.value;
+    const activeDur = dom.videoDurationBtns.find(b => b.classList.contains("active"));
+    const duration = activeDur ? parseInt(activeDur.dataset.dur, 10) : 8;
+    const activeAr = dom.videoAspectBtns.find(b => b.classList.contains("active"));
+    const aspectRatio = activeAr ? activeAr.dataset.ar : "16:9";
+
+    setVideoButtonBusy(true);
+    dom.videoResult.hidden = true;
+    showTopNotice("Starting video generation...", "running");
+
+    let taskId = null;
+    const startTime = Date.now();
+
+    try {
+        const imageBlob = await flattenToBlob();
+        const formData = new FormData();
+        formData.append("prompt", prompt);
+        formData.append("model", model);
+        formData.append("durationSeconds", duration);
+        formData.append("aspectRatio", aspectRatio);
+        formData.append("image", imageBlob, "pixelforge_video_input.png");
+
+        const startResp = await fetch("/api/vertex/generate-video", { method: "POST", body: formData });
+        if (!startResp.ok) {
+            throw new Error(await extractErrorMessage(startResp, "Failed to start video generation."));
+        }
+
+        const { taskId: tid } = await startResp.json();
+        taskId = tid;
+
+        await new Promise((resolve, reject) => {
+            _videoPollingInterval = setInterval(async () => {
+                try {
+                    const statusResp = await fetch(`/api/vertex/video-status/${taskId}`);
+                    if (!statusResp.ok) {
+                        clearInterval(_videoPollingInterval);
+                        reject(new Error("Status check failed."));
+                        return;
+                    }
+                    const { status, videoB64, error, elapsed } = await statusResp.json();
+                    const secs = Math.floor((Date.now() - startTime) / 1000);
+                    showTopNotice(`Generating video... ${secs}s elapsed`, "running");
+
+                    if (status === "complete") {
+                        clearInterval(_videoPollingInterval);
+                        resolve(videoB64);
+                    } else if (status === "error") {
+                        clearInterval(_videoPollingInterval);
+                        reject(new Error(error || "Video generation failed."));
+                    }
+                } catch (e) {
+                    clearInterval(_videoPollingInterval);
+                    reject(e);
+                }
+            }, 3000);
+        }).then(videoB64 => {
+            _showVideoResult(videoB64);
+            showTopNotice("Video generation complete.", "success", 5000);
+        });
+
+    } catch (err) {
+        showTopNotice(err?.message ?? "Video generation failed.", "error", 7000);
+    } finally {
+        setVideoButtonBusy(false);
+    }
+}
+
+function _showVideoResult(videoB64) {
+    const mimeType = "video/mp4";
+    const dataUrl = `data:${mimeType};base64,${videoB64}`;
+
+    dom.videoResultPlayer.src = dataUrl;
+    dom.videoResultPlayer.load();
+
+    dom.videoDownloadBtn.onclick = () => {
+        const a = document.createElement("a");
+        a.href = dataUrl;
+        a.download = "pixelforge_video.mp4";
+        a.click();
+    };
+
+    dom.videoResult.hidden = false;
+    dom.videoResult.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }

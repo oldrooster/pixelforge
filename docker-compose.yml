@@ -9,6 +9,11 @@ services:
     restart: unless-stopped
     volumes:
       - ./vertex.json:/app/vertex.json
+      # Uncomment to enable session persistence (stored on host at ./sessions):
+      # - ./sessions:/app/sessions
+    # Uncomment both blocks below to enable session persistence:
+    # environment:
+    #   SESSIONS_DIR: /app/sessions
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s

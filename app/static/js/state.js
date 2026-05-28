@@ -47,4 +47,8 @@ export const state = {
     MAX_UNDO: 50,
     isAiRemovalRunning: false,
     isVertexOpRunning: false,
+    isVideoRunning: false,
+
+    notifications: [],
+    notifPanelOpen: false,
 };

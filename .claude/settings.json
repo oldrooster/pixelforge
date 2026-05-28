@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "WebFetch(domain:docs.cloud.google.com)"
+      "WebFetch(domain:docs.cloud.google.com)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:discuss.google.dev)",
+      "WebFetch(domain:firebase.google.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

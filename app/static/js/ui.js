@@ -7,7 +7,7 @@ import { canvas, dom } from "./dom.js";
 import { render, clearCropState, clearSelectionState } from "./canvas.js";
 
 // ---------------------------------------------------------------------------
-// Tool configuration table (replaces the if-else chain — Phase 1, item 1.6)
+// Tool configuration table
 // ---------------------------------------------------------------------------
 const TOOL_CONFIG = {
     brush:        { panel: dom.brushSettings,        title: "Brush controls",          desc: "Draw freehand strokes on a new layer.",                                                       cursor: "crosshair" },
@@ -24,6 +24,7 @@ const TOOL_CONFIG = {
     remove:       { panel: dom.removeSettings,       title: "Remove Object controls",  desc: "Paint over an object and AI will erase it and fill the background.",                        cursor: "crosshair" },
     generate:     { panel: dom.generateSettings,     title: "AI Generate controls",    desc: "Generate images from a prompt. Click a thumbnail to use it.",                               cursor: "default"   },
     refine:       { panel: dom.refineSettings,       title: "Image to Image controls", desc: "Generate new images using the current image as a reference. Click a thumbnail to use it.", cursor: "default"   },
+    video:        { panel: dom.videoSettings,        title: "Video Generation",        desc: "Generate a video from the current image using Veo.",                                         cursor: "default"   },
 };
 
 // ---------------------------------------------------------------------------
@@ -54,7 +55,6 @@ function animateContextRefresh() {
     header.classList.add("context-refresh");
 }
 
-// Call once at startup to stamp all panels with the animation class.
 export function initToolPanels() {
     Object.values(TOOL_CONFIG).forEach(config => config.panel.classList.add("tool-panel"));
 }
@@ -148,26 +148,8 @@ export function toggleInpaintMaskMode() {
 }
 
 // ---------------------------------------------------------------------------
-// Status displays
+// Busy state helpers
 // ---------------------------------------------------------------------------
-let topNoticeTimer = null;
-
-export function showTopNotice(message, noticeState, autoHideMs) {
-    dom.topNotice.hidden = false;
-    dom.topNoticeText.textContent = message;
-    dom.topNotice.classList.remove("running", "success", "error");
-    if (noticeState) { dom.topNotice.classList.add(noticeState); }
-    if (topNoticeTimer) { window.clearTimeout(topNoticeTimer); }
-    if (autoHideMs && autoHideMs > 0) {
-        topNoticeTimer = window.setTimeout(() => { dom.topNotice.hidden = true; }, autoHideMs);
-    }
-}
-
-export function dismissTopNotice() {
-    if (topNoticeTimer) { window.clearTimeout(topNoticeTimer); }
-    dom.topNotice.hidden = true;
-}
-
 export function setAiStatus(message, statusState) {
     dom.transparencyAiStatus.textContent = message;
     dom.transparencyAiStatus.classList.remove("running", "success", "error");
@@ -186,10 +168,95 @@ export function setVertexButtonsBusy(isBusy) {
     dom.aiRefinePanelBtn.disabled = isBusy;
     dom.aiInpaintBtn.disabled = isBusy;
     dom.aiRemoveBtn.disabled = isBusy;
-    dom.aiUpscaleBtn.disabled = isBusy;
     dom.aiGeneratePanelBtn.textContent = isBusy ? "Generating..." : "Generate Images";
     dom.aiRefinePanelBtn.textContent = isBusy ? "Generating..." : "Generate from Reference";
     dom.aiInpaintBtn.textContent = isBusy ? "Inpainting..." : "AI Inpaint";
     dom.aiRemoveBtn.textContent = isBusy ? "Removing..." : "Remove Object";
-    dom.aiUpscaleBtn.textContent = isBusy ? "Upscaling..." : "AI Upscale Current Image";
+}
+
+export function setVideoButtonBusy(isBusy) {
+    state.isVideoRunning = isBusy;
+    dom.aiVideoBtn.disabled = isBusy;
+    dom.aiVideoBtn.textContent = isBusy ? "Generating..." : "Generate Video";
+}
+
+// ---------------------------------------------------------------------------
+// Notification bell system
+// ---------------------------------------------------------------------------
+function _relativeTime(date) {
+    const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (secs < 5) { return "just now"; }
+    if (secs < 60) { return `${secs}s ago`; }
+    if (secs < 3600) { return `${Math.floor(secs / 60)}m ago`; }
+    return `${Math.floor(secs / 3600)}h ago`;
+}
+
+function _renderNotifPanel() {
+    dom.notifList.innerHTML = "";
+
+    if (state.notifications.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "notif-empty";
+        empty.textContent = "No notifications";
+        dom.notifList.appendChild(empty);
+    } else {
+        [...state.notifications].reverse().forEach(n => {
+            const item = document.createElement("div");
+            item.className = `notif-item ${n.type || ""}`;
+
+            const dot = document.createElement("span");
+            dot.className = `notif-dot ${n.type || ""}`;
+
+            const msg = document.createElement("span");
+            msg.className = "notif-msg";
+            msg.textContent = n.message;
+
+            const ts = document.createElement("span");
+            ts.className = "notif-time";
+            ts.textContent = _relativeTime(n.timestamp);
+
+            item.appendChild(dot);
+            item.appendChild(msg);
+            item.appendChild(ts);
+            dom.notifList.appendChild(item);
+        });
+    }
+
+    const unread = state.notifications.filter(n => !n.read).length;
+    if (unread > 0) {
+        dom.notifBadge.textContent = unread > 99 ? "99+" : String(unread);
+        dom.notifBadge.hidden = false;
+    } else {
+        dom.notifBadge.hidden = true;
+    }
+}
+
+export function showTopNotice(message, noticeType, _autoHideMs) {
+    state.notifications.push({
+        id: Date.now() + Math.random(),
+        message,
+        type: noticeType || "",
+        timestamp: new Date(),
+        read: state.notifPanelOpen,
+    });
+    _renderNotifPanel();
+}
+
+export function dismissTopNotice() {
+    // no-op — kept for call-site compatibility
+}
+
+export function toggleNotifPanel() {
+    state.notifPanelOpen = !state.notifPanelOpen;
+    dom.notifPanel.hidden = !state.notifPanelOpen;
+
+    if (state.notifPanelOpen) {
+        state.notifications.forEach(n => { n.read = true; });
+        _renderNotifPanel();
+    }
+}
+
+export function clearAllNotifications() {
+    state.notifications = [];
+    _renderNotifPanel();
 }

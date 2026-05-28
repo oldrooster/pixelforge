@@ -12,13 +12,25 @@ export const dom = {
     aiRefinePanelBtn: document.getElementById("ai-refine-panel-btn"),
     aiInpaintBtn: document.getElementById("ai-inpaint-btn"),
     generateThumbs: document.getElementById("generate-thumbs"),
-    topNotice: document.getElementById("top-notice"),
-    topNoticeText: document.getElementById("top-notice-text"),
-    topNoticeClose: document.getElementById("top-notice-close"),
     downloadBtn: document.getElementById("download-btn"),
     emptyState: document.getElementById("empty-state"),
     canvasArea: document.querySelector(".canvas-area"),
     canvasWrap: document.getElementById("canvas-wrap"),
+
+    // Notification bell
+    notifBellWrap: document.getElementById("notif-bell-wrap"),
+    notifBell: document.getElementById("notif-bell"),
+    notifBadge: document.getElementById("notif-badge"),
+    notifPanel: document.getElementById("notif-panel"),
+    notifList: document.getElementById("notif-list"),
+    notifClearAll: document.getElementById("notif-clear-all"),
+
+    // Sessions
+    sessionsBtn: document.getElementById("sessions-btn"),
+    sessionsModal: document.getElementById("sessions-modal"),
+    sessionsModalClose: document.getElementById("sessions-modal-close"),
+    sessionSaveBtn: document.getElementById("session-save-btn"),
+    sessionsGrid: document.getElementById("sessions-grid"),
 
     toolButtons: {
         brush: document.getElementById("tool-brush"),
@@ -35,6 +47,7 @@ export const dom = {
         remove: document.getElementById("tool-remove"),
         generate: document.getElementById("tool-generate"),
         refine: document.getElementById("tool-refine"),
+        video: document.getElementById("tool-video"),
     },
 
     brushSettings: document.getElementById("brush-settings"),
@@ -53,6 +66,7 @@ export const dom = {
     removeSettings: document.getElementById("remove-settings"),
     generateSettings: document.getElementById("generate-settings"),
     refineSettings: document.getElementById("refine-settings"),
+    videoSettings: document.getElementById("video-settings"),
     toolContextTitle: document.getElementById("tool-context-title"),
     toolContextDescription: document.getElementById("tool-context-description"),
 
@@ -96,10 +110,13 @@ export const dom = {
     transparencyEdgeThresholdLabel: document.getElementById("transparency-edge-threshold-label"),
     transparencyAiApplyBtn: document.getElementById("transparency-ai-apply-btn"),
     transparencyAiStatus: document.getElementById("transparency-ai-status"),
-    aiUpscaleBtn: document.getElementById("ai-upscale-btn"),
     aiDescribeRefineBtn: document.getElementById("ai-describe-refine-btn"),
     aiDescribeGenerateBtn: document.getElementById("ai-describe-generate-btn"),
     generateModel: document.getElementById("generate-model"),
+    generateCount: document.getElementById("generate-count"),
+    generateCountLabel: document.getElementById("generate-count-label"),
+    refineCount: document.getElementById("refine-count"),
+    refineCountLabel: document.getElementById("refine-count-label"),
     aspectBtns: Array.from(document.querySelectorAll(".aspect-btn")),
     aiInpaintPrompt: document.getElementById("ai-inpaint-prompt"),
     inpaintMaskModeRadios: Array.from(document.querySelectorAll("input[name='inpaint-mask-mode']")),
@@ -124,4 +141,14 @@ export const dom = {
     zoomFitBtn: document.getElementById("zoom-fit-btn"),
     zoomLabel: document.getElementById("zoom-label"),
     thumbDeleteBtn: document.getElementById("thumb-delete-btn"),
+
+    // Video
+    aiVideoBtn: document.getElementById("ai-video-btn"),
+    videoModel: document.getElementById("video-model"),
+    videoDurationBtns: Array.from(document.querySelectorAll(".video-dur-btn")),
+    videoAspectBtns: Array.from(document.querySelectorAll(".video-ar-btn")),
+    aiVideoPrompt: document.getElementById("ai-video-prompt"),
+    videoResult: document.getElementById("video-result"),
+    videoResultPlayer: document.getElementById("video-result-player"),
+    videoDownloadBtn: document.getElementById("video-download-btn"),
 };
