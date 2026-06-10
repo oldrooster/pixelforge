@@ -2,9 +2,9 @@
 
 import { state } from "./state.js";
 import { dom } from "./dom.js";
-import { showTopNotice, setAiStatus, setAiButtonBusy, setVertexButtonsBusy, setVideoButtonBusy } from "./ui.js";
+import { showTopNotice, updateTopNotice, setAiStatus, setAiButtonBusy, setVertexButtonsBusy, setVideoButtonBusy } from "./ui.js";
 import { flattenToBlob, activateCanvas, getActiveSelectionRect, clampRectToCanvas, createSelectionMaskBlob, createInpaintBrushMaskBlob, clearSelectionState, clearInpaintMask, replaceWithRasterCanvas } from "./canvas.js";
-import { appendThumbSlot, saveCurrentThumbState, loadBase64AsImage, updateThumbDeleteBtn, applyBlobAsCanvas } from "./thumbs.js";
+import { appendThumbSlot, appendVideoThumbSlot, selectThumbSlot, saveCurrentThumbState, loadBase64AsImage, updateThumbDeleteBtn, applyBlobAsCanvas } from "./thumbs.js";
 
 // ---------------------------------------------------------------------------
 // Shared helper: append generated images to the thumbnail strip
@@ -388,7 +388,7 @@ export async function runVideoGenerate() {
                     }
                     const { status, videoB64, error, elapsed } = await statusResp.json();
                     const secs = Math.floor((Date.now() - startTime) / 1000);
-                    showTopNotice(`Generating video... ${secs}s elapsed`, "running");
+                    updateTopNotice("video-progress", `Generating video... ${secs}s elapsed`, "running");
 
                     if (status === "complete") {
                         clearInterval(_videoPollingInterval);
@@ -415,19 +415,14 @@ export async function runVideoGenerate() {
 }
 
 function _showVideoResult(videoB64) {
-    const mimeType = "video/mp4";
-    const dataUrl = `data:${mimeType};base64,${videoB64}`;
-
-    dom.videoResultPlayer.src = dataUrl;
-    dom.videoResultPlayer.load();
-
-    dom.videoDownloadBtn.onclick = () => {
+    const dataUrl = `data:video/mp4;base64,${videoB64}`;
+    const onDownload = () => {
         const a = document.createElement("a");
         a.href = dataUrl;
         a.download = "pixelforge_video.mp4";
         a.click();
     };
-
-    dom.videoResult.hidden = false;
+    const idx = appendVideoThumbSlot(dataUrl, onDownload);
+    selectThumbSlot(idx);
     dom.videoResult.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }

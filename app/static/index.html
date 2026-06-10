@@ -309,11 +309,12 @@
             </div>
 
             <div id="video-settings" class="setting-group" hidden>
-                <div class="hint compact-hint">Generate a video from the current image. Veo 2 produces silent video; Veo 3 generates video with audio.</div>
+                <div class="hint compact-hint">Veo 2 and Veo 3.1 animate the current image (with audio on 3.1). Veo 3.0 is text-to-video only and ignores the image.</div>
                 <label>Model</label>
                 <select id="video-model">
                     <option value="veo-2.0-generate-001">Veo 2 (no audio)</option>
-                    <option value="veo-3.0-generate-001">Veo 3 (with audio)</option>
+                    <option value="veo-3.0-generate-001">Veo 3.0 – text only (audio)</option>
+                    <option value="veo-3.1-generate-001">Veo 3.1 – image+text (audio)</option>
                 </select>
                 <label>Duration</label>
                 <div class="aspect-ratio-row">

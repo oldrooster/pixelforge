@@ -242,6 +242,27 @@ export function showTopNotice(message, noticeType, _autoHideMs) {
     _renderNotifPanel();
 }
 
+// Update an existing notification in-place (matched by tag), or create it.
+// Use the same tag on repeated calls to avoid flooding the list.
+export function updateTopNotice(tag, message, noticeType) {
+    const existing = state.notifications.find(n => n.tag === tag);
+    if (existing) {
+        existing.message = message;
+        existing.type = noticeType || "";
+        existing.timestamp = new Date();
+    } else {
+        state.notifications.push({
+            id: Date.now() + Math.random(),
+            tag,
+            message,
+            type: noticeType || "",
+            timestamp: new Date(),
+            read: state.notifPanelOpen,
+        });
+    }
+    _renderNotifPanel();
+}
+
 export function dismissTopNotice() {
     // no-op — kept for call-site compatibility
 }

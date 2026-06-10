@@ -332,7 +332,6 @@ body {
    Video result
 --------------------------------------------------------------------------- */
 .video-result {
-    margin-top: 12px;
     border: 1px solid var(--border);
     border-radius: 10px;
     overflow: hidden;
@@ -345,7 +344,7 @@ body {
 
 .video-player {
     width: 100%;
-    max-height: 50vh;
+    max-height: 70vh;
     display: block;
 }
 
@@ -494,7 +493,9 @@ body {
     flex-wrap: wrap;
 }
 
-.aspect-btn.active {
+.aspect-btn.active,
+.video-dur-btn.active,
+.video-ar-btn.active {
     background: var(--accent);
     border-color: var(--accent);
     color: #fff;
@@ -721,6 +722,48 @@ hr {
 
 .generate-thumbs img.selected {
     border-color: var(--accent);
+}
+
+.video-thumb-wrapper {
+    position: relative;
+    display: inline-flex;
+    height: 80px;
+    max-width: calc(25% - 6px);
+    cursor: pointer;
+    border-radius: 6px;
+    border: 2px solid var(--border);
+    overflow: hidden;
+    transition: border-color 120ms;
+}
+
+.video-thumb-wrapper img {
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+    border: none;
+    border-radius: 0;
+    display: block;
+}
+
+.video-thumb-wrapper:hover {
+    border-color: #4f6377;
+}
+
+.video-thumb-wrapper.selected {
+    border-color: var(--accent);
+}
+
+.video-thumb-badge {
+    position: absolute;
+    bottom: 4px;
+    right: 5px;
+    background: rgba(0,0,0,0.65);
+    color: #fff;
+    font-size: 10px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 3px;
+    pointer-events: none;
 }
 
 .ai-status {

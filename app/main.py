@@ -712,6 +712,7 @@ def delete_session(session_id: str) -> Response | tuple[Response, int]:
 _ALLOWED_VIDEO_MODELS = {
     "veo-2.0-generate-001",
     "veo-3.0-generate-001",
+    "veo-3.1-generate-001",
 }
 _ALLOWED_VIDEO_DURATIONS = {4, 6, 8}
 _ALLOWED_VIDEO_ASPECT_RATIOS = {"16:9", "9:16", "1:1"}
@@ -735,14 +736,15 @@ def _run_video_generation(
             f"https://{vertex_cfg.location}-aiplatform.googleapis.com/v1/projects/{project_id}/"
             f"locations/{vertex_cfg.location}/publishers/google/models/{model}:predictLongRunning"
         )
+        # Veo 3.0 is text-to-video only; Veo 2 and Veo 3.1+ support referenceImages.
+        instance: dict = {"prompt": prompt}
+        if image_b64 and model != "veo-3.0-generate-001":
+            instance["referenceImages"] = [{
+                "image": {"bytesBase64Encoded": image_b64, "mimeType": "image/png"},
+                "referenceType": "asset",
+            }]
         body: dict = {
-            "instances": [{
-                "prompt": prompt,
-                "referenceImages": [{
-                    "image": {"bytesBase64Encoded": image_b64, "mimeType": "image/png"},
-                    "referenceType": "asset",
-                }],
-            }],
+            "instances": [instance],
             "parameters": {
                 "durationSeconds": duration,
                 "aspectRatio": aspect_ratio,
@@ -765,17 +767,21 @@ def _run_video_generation(
 
         logger.info("[video/%s] operation started: %s", task_id, operation_name)
 
-        poll_url = (
-            f"https://{vertex_cfg.location}-aiplatform.googleapis.com/v1/{operation_name}"
+        # Veo publisher-model operations must be polled via fetchPredictOperation,
+        # not the generic GET /v1/{operation_name} endpoint (returns 404).
+        fetch_url = (
+            f"https://{vertex_cfg.location}-aiplatform.googleapis.com/v1/projects/{project_id}/"
+            f"locations/{vertex_cfg.location}/publishers/google/models/{model}:fetchPredictOperation"
         )
         deadline = time.time() + 600  # 10-minute hard cap
         while time.time() < deadline:
             time.sleep(5)
             # Refresh token before each poll
             fresh_token, _ = _get_vertex_access_token_and_project()
-            poll_resp = requests.get(
-                poll_url,
-                headers={"Authorization": f"Bearer {fresh_token}"},
+            poll_resp = requests.post(
+                fetch_url,
+                headers={"Authorization": f"Bearer {fresh_token}", "Content-Type": "application/json"},
+                json={"operationName": operation_name},
                 timeout=30,
             )
             if not poll_resp.ok:
