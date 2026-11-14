@@ -105,6 +105,7 @@ export const dom = {
     transparencyAiControls: document.getElementById("transparency-ai-controls"),
     transparencyTolerance: document.getElementById("transparency-tolerance"),
     transparencyToleranceLabel: document.getElementById("transparency-tolerance-label"),
+    transparencyContiguous: document.getElementById("transparency-contiguous"),
     transparencyEdgeDetect: document.getElementById("transparency-edge-detect"),
     transparencyEdgeThreshold: document.getElementById("transparency-edge-threshold"),
     transparencyEdgeThresholdLabel: document.getElementById("transparency-edge-threshold-label"),

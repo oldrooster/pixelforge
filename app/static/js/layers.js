@@ -512,6 +512,25 @@ export function transparencyFillAt(px, py) {
     const out = outCtx.getImageData(0, 0, w, h);
     const outData = out.data;
 
+    const matches = i => {
+        const dr = source[i] - startR;
+        const dg = source[i + 1] - startG;
+        const db = source[i + 2] - startB;
+        const da = source[i + 3] - startA;
+        return Math.sqrt(dr * dr + dg * dg + db * db + da * da) <= tol;
+    };
+
+    if (!dom.transparencyContiguous.checked) {
+        // Global: clear every pixel in the image that matches the clicked colour.
+        for (let p = 0; p < w * h; p++) {
+            if (useEdgeDetect && edgeMap[p] > edgeThreshold) { continue; }
+            if (matches(p * 4)) { outData[p * 4 + 3] = 0; }
+        }
+        outCtx.putImageData(out, 0, 0);
+        replaceWithRasterCanvas(outCanvas);
+        return;
+    }
+
     const visited = new Uint8Array(w * h);
     const stack = [x + y * w];
     visited[x + y * w] = 1;
@@ -524,11 +543,7 @@ export function transparencyFillAt(px, py) {
 
         if (useEdgeDetect && edgeMap[p] > edgeThreshold) { continue; }
 
-        const dr = source[i] - startR;
-        const dg = source[i + 1] - startG;
-        const db = source[i + 2] - startB;
-        const da = source[i + 3] - startA;
-        if (Math.sqrt(dr * dr + dg * dg + db * db + da * da) <= tol) {
+        if (matches(i)) {
             outData[i + 3] = 0;
             if (cx > 0 && !visited[p - 1]) { visited[p - 1] = 1; stack.push(p - 1); }
             if (cx < w - 1 && !visited[p + 1]) { visited[p + 1] = 1; stack.push(p + 1); }
