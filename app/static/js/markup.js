@@ -19,7 +19,7 @@ import {
 } from "./canvas.js";
 import {
     renderLayersPanel, pushUndo, updateHistoryButtons, restoreSnapshot,
-    hitTestLayers, createShapeLayer, drawLayer, floodFillAt, transparencyFillAt,
+    hitTestLayers, createShapeLayer, drawLayer, floodFillAt, transparencyFillAt, defringeEdges,
     flattenAllLayers,
 } from "./layers.js";
 import { loadImageFile, deleteActiveThumb } from "./thumbs.js";
@@ -83,6 +83,14 @@ dom.refineCount.addEventListener("input", () => { dom.refineCountLabel.textConte
 dom.shapeFillEnabled.addEventListener("change", updateShapeFillVisibility);
 dom.shapeTypeRadios.forEach(r => r.addEventListener("change", updateShapeFillVisibility));
 dom.transparencyMethodRadios.forEach(r => r.addEventListener("change", updateTransparencyMethodUI));
+dom.defringeModeRadios.forEach(r => r.addEventListener("change", () => {
+    dom.defringeColorRow.hidden = dom.defringeModeRadios.find(x => x.checked)?.value !== "color";
+}));
+dom.defringeWidth.addEventListener("input", () => { dom.defringeWidthLabel.textContent = dom.defringeWidth.value; });
+dom.defringeApplyBtn.addEventListener("click", () => {
+    const mode = dom.defringeModeRadios.find(r => r.checked)?.value ?? "erase";
+    defringeEdges(mode, parseInt(dom.defringeWidth.value, 10), dom.defringeColor.value);
+});
 dom.inpaintMaskModeRadios.forEach(r => {
     r.addEventListener("change", () => { updateInpaintMaskModeUI(); render(); });
 });

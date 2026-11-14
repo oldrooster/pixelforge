@@ -540,3 +540,108 @@ export function transparencyFillAt(px, py) {
     outCtx.putImageData(out, 0, 0);
     replaceWithRasterCanvas(outCanvas);
 }
+
+// ---------------------------------------------------------------------------
+// Defringe: clean up halo pixels bordering transparent areas.
+//   mode "erase"  - make the outer `width` px of opaque pixels transparent (contract/choke)
+//   mode "color"  - repaint them with a solid colour (keeps their alpha/anti-aliasing)
+//   mode "inside" - repaint them with colours pulled from just inside the shape
+// ---------------------------------------------------------------------------
+export function defringeEdges(mode, width, hexColor) {
+    if (!state.originalImage) { return; }
+    const w = canvas.width;
+    const h = canvas.height;
+    const composite = buildCompositeCanvas();
+    const cctx = composite.getContext("2d");
+    const img = cctx.getImageData(0, 0, w, h);
+    const d = img.data;
+
+    // ring[p] = 1..width for edge pixels (distance from transparency), 0 otherwise.
+    const ring = new Uint8Array(w * h);
+    let frontier = [];
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const p = y * w + x;
+            if (d[p * 4 + 3] === 0) { continue; }
+            if (hasNeighbour(x, y, w, h, q => d[q * 4 + 3] === 0)) {
+                ring[p] = 1;
+                frontier.push(p);
+            }
+        }
+    }
+    if (frontier.length === 0) {
+        return;
+    }
+    for (let k = 2; k <= width && frontier.length > 0; k++) {
+        const next = [];
+        for (const p of frontier) {
+            const x = p % w;
+            const y = (p - x) / w;
+            forEachNeighbour(x, y, w, h, q => {
+                if (ring[q] === 0 && d[q * 4 + 3] !== 0) {
+                    ring[q] = k;
+                    next.push(q);
+                }
+            });
+        }
+        frontier = next;
+    }
+
+    if (mode === "erase") {
+        for (let p = 0; p < ring.length; p++) {
+            if (ring[p]) { d[p * 4 + 3] = 0; }
+        }
+    } else if (mode === "color") {
+        const r = parseInt(hexColor.slice(1, 3), 16);
+        const g = parseInt(hexColor.slice(3, 5), 16);
+        const b = parseInt(hexColor.slice(5, 7), 16);
+        for (let p = 0; p < ring.length; p++) {
+            if (ring[p]) { d[p * 4] = r; d[p * 4 + 1] = g; d[p * 4 + 2] = b; }
+        }
+    } else {
+        // Work inwards-out: ring `width` copies from the interior, then each outer
+        // ring copies from the (already fixed) ring just inside it.
+        const byRing = Array.from({ length: width + 1 }, () => []);
+        for (let p = 0; p < ring.length; p++) {
+            if (ring[p]) { byRing[ring[p]].push(p); }
+        }
+        for (let k = width; k >= 1; k--) {
+            const fixed = [];
+            for (const p of byRing[k]) {
+                const x = p % w;
+                const y = (p - x) / w;
+                let sr = 0, sg = 0, sb = 0, n = 0;
+                forEachNeighbour(x, y, w, h, q => {
+                    if (d[q * 4 + 3] !== 0 && (ring[q] === 0 || ring[q] > k)) {
+                        sr += d[q * 4]; sg += d[q * 4 + 1]; sb += d[q * 4 + 2]; n++;
+                    }
+                });
+                if (n > 0) { fixed.push([p, sr / n, sg / n, sb / n]); }
+            }
+            for (const [p, r, g, b] of fixed) {
+                d[p * 4] = r; d[p * 4 + 1] = g; d[p * 4 + 2] = b;
+            }
+        }
+    }
+
+    cctx.putImageData(img, 0, 0);
+    replaceWithRasterCanvas(composite);
+}
+
+function forEachNeighbour(x, y, w, h, fn) {
+    for (let dy = -1; dy <= 1; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= h) { continue; }
+        for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            if ((dx === 0 && dy === 0) || nx < 0 || nx >= w) { continue; }
+            fn(ny * w + nx);
+        }
+    }
+}
+
+function hasNeighbour(x, y, w, h, pred) {
+    let found = false;
+    forEachNeighbour(x, y, w, h, q => { if (!found && pred(q)) { found = true; } });
+    return found;
+}

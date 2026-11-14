@@ -232,6 +232,32 @@
                     <button id="transparency-ai-apply-btn" class="btn btn-small">Run AI background removal</button>
                     <div id="transparency-ai-status" class="hint compact-hint ai-status">Idle.</div>
                 </div>
+
+                <div id="transparency-defringe-controls">
+                    <label>Defringe edges</label>
+                    <div class="hint compact-hint">Clean up halo pixels left around transparent areas.</div>
+                    <div id="defringe-mode" class="method-row" role="radiogroup" aria-label="Defringe mode">
+                        <label class="method-option">
+                            <input type="radio" name="defringe-mode" value="erase" checked>
+                            <span>Erase</span>
+                        </label>
+                        <label class="method-option">
+                            <input type="radio" name="defringe-mode" value="color">
+                            <span>Solid colour</span>
+                        </label>
+                        <label class="method-option">
+                            <input type="radio" name="defringe-mode" value="inside">
+                            <span>From inside</span>
+                        </label>
+                    </div>
+                    <div id="defringe-color-row" hidden>
+                        <label>Edge colour</label>
+                        <input id="defringe-color" type="color" value="#000000">
+                    </div>
+                    <label>Width <span id="defringe-width-label">1</span>px</label>
+                    <input id="defringe-width" type="range" min="1" max="10" value="1">
+                    <button id="defringe-apply-btn" class="btn btn-small">Apply defringe</button>
+                </div>
             </div>
 
             <div id="inpaint-settings" class="setting-group" hidden>
