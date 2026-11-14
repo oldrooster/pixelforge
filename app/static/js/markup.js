@@ -165,9 +165,16 @@ dom.zoomFitBtn.addEventListener("click", () => setZoom("fit"));
 dom.thumbDeleteBtn.addEventListener("click", deleteActiveThumb);
 
 dom.canvasWrap.addEventListener("wheel", e => {
-    if (!state.originalImage) { return; }
+    if (!state.originalImage || !(e.ctrlKey || e.metaKey)) { return; }
     e.preventDefault();
+    // Keep the image point under the cursor fixed while zooming.
+    const before = canvas.getBoundingClientRect();
+    const fx = (e.clientX - before.left) / before.width;
+    const fy = (e.clientY - before.top) / before.height;
     setZoom(state.zoomLevel * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+    const after = canvas.getBoundingClientRect();
+    dom.canvasWrap.scrollLeft += after.left + fx * after.width - e.clientX;
+    dom.canvasWrap.scrollTop += after.top + fy * after.height - e.clientY;
 }, { passive: false });
 
 // ---------------------------------------------------------------------------
@@ -229,44 +236,41 @@ dom.imageInput.addEventListener("change", () => {
     }
 });
 
-dom.emptyState.addEventListener("dragover", event => {
+// Accept image drops anywhere on the page (also stops the browser navigating
+// away to the dropped file when an image is already open).
+const hasFiles = e => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+document.addEventListener("dragover", event => {
+    if (!hasFiles(event)) { return; }
     event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
     dom.emptyState.classList.add("dragging");
+    dom.canvasArea.classList.add("dragging");
 });
-dom.emptyState.addEventListener("dragleave", () => dom.emptyState.classList.remove("dragging"));
-dom.emptyState.addEventListener("drop", event => {
+document.addEventListener("dragleave", event => {
+    if (event.relatedTarget) { return; }
+    dom.emptyState.classList.remove("dragging");
+    dom.canvasArea.classList.remove("dragging");
+});
+document.addEventListener("drop", event => {
+    if (!hasFiles(event)) { return; }
     event.preventDefault();
     dom.emptyState.classList.remove("dragging");
-    if (event.dataTransfer.files && event.dataTransfer.files[0]) {
-        loadImageFile(event.dataTransfer.files[0]);
-    }
+    dom.canvasArea.classList.remove("dragging");
+    const file = Array.from(event.dataTransfer.files).find(f => f.type.startsWith("image/"));
+    if (file) { loadImageFile(file); }
 });
 
 document.addEventListener("paste", e => {
+    const target = e.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) { return; }
     const items = e.clipboardData?.items;
     if (!items) { return; }
     for (const item of items) {
         if (item.type.startsWith("image/")) {
-            const blob = item.getAsFile();
-            if (!blob) { continue; }
-            const url = URL.createObjectURL(blob);
-            const img = new Image();
-            img.onload = () => {
-                URL.revokeObjectURL(url);
-                import("./canvas.js").then(({ activateCanvas }) => {
-                    activateCanvas(img);
-                    import("./thumbs.js").then(({ appendThumbSlot, updateThumbDeleteBtn: uTDB }) => {
-                        const dataUrl = buildCompositeCanvas().toDataURL("image/png");
-                        const idx = appendThumbSlot(dataUrl);
-                        state.thumbSlots.forEach(s => s.el.classList.remove("selected"));
-                        state.activeThumbIndex = idx;
-                        state.thumbSlots[idx].el.classList.add("selected");
-                        uTDB();
-                    });
-                });
-            };
-            img.src = url;
+            const file = item.getAsFile();
+            if (!file) { continue; }
             e.preventDefault();
+            loadImageFile(file);
             break;
         }
     }
@@ -280,7 +284,7 @@ canvas.addEventListener("mousedown", event => {
     const pos = getCanvasPos(event);
 
     if (state.activeTool === "crop") {
-        state.dragStart = { x: pos.x, y: pos.y };
+        state.dragStart = clampedPixelPos(pos);
         state.lastMousePos = pos;
         state.cropRect = null;
         updateCropLabel(null);
@@ -294,8 +298,8 @@ canvas.addEventListener("mousedown", event => {
             state.selectionDragOffset = { x: pos.x - state.floatingSelection.x, y: pos.y - state.floatingSelection.y };
             return;
         }
-        state.dragStart = { x: pos.x, y: pos.y };
-        state.lastMousePos = pos;
+        state.dragStart = clampedPixelPos(pos);
+        state.lastMousePos = state.dragStart;
         state.selectionRect = null;
         state.floatingSelection = null;
         state.selectionBackground = null;
@@ -414,9 +418,23 @@ canvas.addEventListener("mousedown", event => {
     renderLayersPanel();
 });
 
-canvas.addEventListener("mousemove", event => {
+// Snap to whole pixels and clamp to the canvas, so dragging past an edge
+// pins the rect to that edge instead of stopping short.
+function clampedPixelPos(pos) {
+    return {
+        x: Math.max(0, Math.min(canvas.width, Math.round(pos.x))),
+        y: Math.max(0, Math.min(canvas.height, Math.round(pos.y))),
+    };
+}
+
+// Listen on window so drags keep tracking after the cursor leaves the canvas.
+window.addEventListener("mousemove", event => {
     if (!state.originalImage) { return; }
-    const pos = getCanvasPos(event);
+    const rawPos = getCanvasPos(event);
+    const isRectDrag = state.dragStart && !state.isMovingSelection &&
+        (state.activeTool === "crop" || state.activeTool === "select" ||
+         (state.activeTool === "inpaint" && dom.inpaintMaskModeRadios.find(r => r.checked)?.value === "selection"));
+    const pos = isRectDrag ? clampedPixelPos(rawPos) : rawPos;
     state.lastMousePos = pos;
 
     if (state.activeTool === "crop" && state.dragStart) {

@@ -211,8 +211,12 @@ export function loadImageFile(file) {
         const img = new Image();
         img.onload = () => {
             const dataUrl = e.target.result;
+            // Save the current image (with its layers/undo) into its thumbnail first.
+            saveCurrentThumbState();
             activateCanvas(img);
+            dom.videoResult.hidden = true;
             const idx = appendThumbSlot(dataUrl);
+            state.thumbSlots.forEach(s => s.el.classList.remove("selected"));
             state.activeThumbIndex = idx;
             state.thumbSlots[idx].el.classList.add("selected");
             updateThumbDeleteBtn();
