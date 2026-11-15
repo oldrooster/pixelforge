@@ -59,4 +59,4 @@ docker compose down
 
 ## Security notes
 
-- `vertex.json` is a service-account key. It must never be printed, logged or sent anywhere. It was committed to git historically; see the README/user before touching history.
+- `vertex.json` is a service-account key. It's gitignored (never committed); never print, log or send its contents anywhere.

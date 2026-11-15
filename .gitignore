@@ -1,2 +1,6 @@
 vertex.json
 delay_prompt.sh
+.venv/
+__pycache__/
+*.py[cod]
+sessions/
