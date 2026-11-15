@@ -1,6 +1,6 @@
 Flask==3.*
-gunicorn==25.*
+gunicorn==27.*
 rembg[cpu]==2.*
 google-auth==2.*
 requests==2.*
-Pillow==12.*
+Pillow==13.*

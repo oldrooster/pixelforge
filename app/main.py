@@ -639,7 +639,7 @@ def save_session() -> Response | tuple[Response, int]:
         img = Image.open(BytesIO(image_bytes)).convert("RGB")
         thumb_w = 200
         thumb_h = int(img.height * thumb_w / img.width)
-        thumb = img.resize((thumb_w, thumb_h), Image.LANCZOS)
+        thumb = img.resize((thumb_w, thumb_h), Image.Resampling.LANCZOS)
         thumb_buf = BytesIO()
         thumb.save(thumb_buf, format="JPEG", quality=80)
         thumbnail_b64 = base64.b64encode(thumb_buf.getvalue()).decode()
