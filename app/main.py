@@ -339,6 +339,115 @@ def remove_background() -> Response | tuple[Response, int]:
 
 
 # ---------------------------------------------------------------------------
+# Route: indexed-colour (palette / "PNG-8") export
+# ---------------------------------------------------------------------------
+def _to_indexed_png(data: bytes, colors: int, dither: bool) -> bytes:
+    """Convert an image to a palette PNG with at most `colors` entries.
+
+    Images that already use <= `colors` distinct colours are mapped exactly.
+    Otherwise opaque images use median-cut (optionally Floyd-Steinberg
+    dithered) and images with transparency use fast-octree, which keeps
+    per-entry alpha (written as a tRNS chunk).
+    """
+    import numpy as np
+
+    img = Image.open(BytesIO(data)).convert("RGBA")
+    arr = np.asarray(img).copy()
+    # Collapse every fully transparent pixel to one colour so they share an entry.
+    arr[arr[..., 3] == 0] = 0
+    img = Image.fromarray(arr, "RGBA")
+    has_alpha = bool((arr[..., 3] < 255).any())
+
+    packed = arr.view(np.uint32).reshape(-1)
+    unique, inverse = np.unique(packed, return_inverse=True)
+    if len(unique) <= colors:
+        palette_rgba = unique.view(np.uint8).reshape(-1, 4)
+        out = Image.fromarray(inverse.reshape(arr.shape[:2]).astype(np.uint8), "P")
+        out.putpalette(palette_rgba[:, :3].reshape(-1).tolist())
+        if has_alpha:
+            out.info["transparency"] = bytes(palette_rgba[:, 3].tolist())
+    elif has_alpha:
+        out = img.quantize(colors, method=Image.Quantize.FASTOCTREE, dither=Image.Dither.NONE)
+        if dither:
+            out = _dither_opaque_pixels(img, out, arr[..., 3] == 255)
+    else:
+        rgb = img.convert("RGB")
+        palette_img = rgb.quantize(colors, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+        out = rgb.quantize(
+            palette=palette_img,
+            dither=Image.Dither.FLOYDSTEINBERG if dither else Image.Dither.NONE,
+        )
+
+    buf = BytesIO()
+    save_kwargs: dict[str, Any] = {"format": "PNG", "optimize": True}
+    if "transparency" in out.info:
+        save_kwargs["transparency"] = out.info["transparency"]
+    out.save(buf, **save_kwargs)
+    return buf.getvalue()
+
+
+def _dither_opaque_pixels(img: Image.Image, quantized: Image.Image, opaque_mask: Any) -> Image.Image:
+    """Re-map fully opaque pixels with Floyd-Steinberg against the palette's
+    opaque entries. Pillow can't dither RGBA, so semi-transparent pixels keep
+    their plain nearest-colour index from `quantized`."""
+    import numpy as np
+
+    pal = np.array(quantized.getpalette("RGBA"), dtype=np.uint8).reshape(-1, 4)
+    opaque_idx = np.flatnonzero(pal[:, 3] == 255)
+    if len(opaque_idx) == 0 or not opaque_mask.any():
+        return quantized
+
+    # Palette image of only the opaque entries, padded by repeating the first
+    # entry so unused slots never introduce a stray (e.g. black) colour.
+    rgb_entries = pal[opaque_idx, :3]
+    padded = np.vstack([rgb_entries, np.repeat(rgb_entries[:1], 256 - len(rgb_entries), axis=0)])
+    pal_img = Image.new("P", (1, 1))
+    pal_img.putpalette(padded.reshape(-1).tolist())
+
+    dithered = np.asarray(img.convert("RGB").quantize(palette=pal_img, dither=Image.Dither.FLOYDSTEINBERG))
+    dithered = np.minimum(dithered, len(opaque_idx) - 1)
+    indices = np.asarray(quantized).copy()
+    indices[opaque_mask] = opaque_idx[dithered[opaque_mask]]
+
+    out = Image.fromarray(indices.astype(np.uint8), "P")
+    out.putpalette(pal[:, :3].reshape(-1).tolist())
+    out.info["transparency"] = bytes(pal[:, 3].tolist())
+    return out
+
+
+@app.post("/api/export/indexed-png")
+def export_indexed_png() -> Response | tuple[Response, int]:
+    file = request.files.get("image")
+    if file is None:
+        return api_error("Missing image file")
+    try:
+        data = _read_validated_image(file)
+    except ValueError as exc:
+        return api_error(str(exc))
+
+    try:
+        colors = int(request.form.get("colors", "256"))
+    except ValueError:
+        return api_error("colors must be an integer")
+    if not 2 <= colors <= 256:
+        return api_error("colors must be between 2 and 256")
+    dither = request.form.get("dither", "false").lower() in ("1", "true", "yes", "on")
+
+    try:
+        output = _to_indexed_png(data, colors, dither)
+    except Exception as exc:
+        logger.exception("Indexed PNG export failed")
+        return api_error(f"Indexed PNG export failed: {exc}", 500)
+
+    return send_file(
+        BytesIO(output),
+        mimetype="image/png",
+        as_attachment=False,
+        download_name="pixelforge_256.png",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Routes: Gemini image generation / editing
 # ---------------------------------------------------------------------------
 _ALLOWED_GENERATE_MODELS = {

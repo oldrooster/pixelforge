@@ -220,17 +220,56 @@ dom.videoAspectBtns.forEach(btn => {
 // ---------------------------------------------------------------------------
 // Download
 // ---------------------------------------------------------------------------
-dom.downloadBtn.addEventListener("click", async () => {
-    if (!state.originalImage) { return; }
-    const blob = await flattenToBlob();
+try {
+    const saved = localStorage.getItem("pixelforge.downloadFormat");
+    if (saved && [...dom.downloadFormat.options].some(o => o.value === saved)) { dom.downloadFormat.value = saved; }
+} catch { /* storage unavailable */ }
+dom.downloadFormat.addEventListener("change", () => {
+    try { localStorage.setItem("pixelforge.downloadFormat", dom.downloadFormat.value); } catch { /* ignore */ }
+});
+
+function saveBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "pixelforge_markup.png";
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+}
+
+dom.downloadBtn.addEventListener("click", async () => {
+    if (!state.originalImage) { return; }
+    const format = dom.downloadFormat.value;
+    const blob = await flattenToBlob();
+    if (format === "png") {
+        saveBlob(blob, "pixelforge_markup.png");
+        return;
+    }
+
+    // 256-colour palette PNG: converted server-side with Pillow.
+    dom.downloadBtn.disabled = true;
+    dom.downloadBtn.textContent = "Converting...";
+    try {
+        const form = new FormData();
+        form.append("image", blob, "pixelforge_input.png");
+        form.append("colors", "256");
+        form.append("dither", format === "png8-dither" ? "true" : "false");
+        const response = await fetch("/api/export/indexed-png", { method: "POST", body: form });
+        if (!response.ok) {
+            let message = "256-colour export failed.";
+            try { message = (await response.json()).error ?? message; } catch { /* non-JSON */ }
+            showTopNotice(message, "error", 6500);
+            return;
+        }
+        saveBlob(await response.blob(), "pixelforge_256.png");
+    } catch (err) {
+        showTopNotice(err?.message ?? "256-colour export failed.", "error", 6500);
+    } finally {
+        dom.downloadBtn.disabled = false;
+        dom.downloadBtn.textContent = "Download";
+    }
 });
 
 // ---------------------------------------------------------------------------

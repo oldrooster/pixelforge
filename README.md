@@ -25,7 +25,7 @@ PixelForge is a standalone browser-based image markup and AI editing tool powere
 - Undo / redo history (up to 50 steps)
 - Notification bell — all AI operation results are stored in a persistent history panel
 - Sessions — save and reload canvas snapshots server-side (optional, requires volume mount)
-- Download flattened PNG
+- Download flattened PNG — full colour, or 256-colour palette PNG (optionally dithered; converted server-side with Pillow)
 
 ## AI models
 

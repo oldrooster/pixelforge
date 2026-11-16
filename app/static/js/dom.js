@@ -13,6 +13,7 @@ export const dom = {
     aiInpaintBtn: document.getElementById("ai-inpaint-btn"),
     generateThumbs: document.getElementById("generate-thumbs"),
     downloadBtn: document.getElementById("download-btn"),
+    downloadFormat: document.getElementById("download-format"),
     emptyState: document.getElementById("empty-state"),
     canvasArea: document.querySelector(".canvas-area"),
     canvasWrap: document.getElementById("canvas-wrap"),

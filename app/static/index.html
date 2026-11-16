@@ -13,7 +13,14 @@
             <label class="btn btn-primary" for="image-input">Load Image</label>
             <input id="image-input" type="file" accept=".png,.jpg,.jpeg,.webp" hidden>
             <button id="sessions-btn" class="btn btn-secondary">Sessions</button>
-            <button id="download-btn" class="btn btn-secondary" disabled>Download</button>
+            <div class="download-group">
+                <select id="download-format" class="download-format" aria-label="Download format" title="Download format">
+                    <option value="png">PNG (full colour)</option>
+                    <option value="png8">PNG · 256 colours</option>
+                    <option value="png8-dither">PNG · 256 colours, dithered</option>
+                </select>
+                <button id="download-btn" class="btn btn-secondary" disabled>Download</button>
+            </div>
 
             <!-- Notification bell -->
             <div class="notif-bell-wrap" id="notif-bell-wrap">
