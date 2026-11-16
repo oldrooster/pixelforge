@@ -91,6 +91,7 @@
                     <button id="tool-resize" class="btn btn-small">Resize</button>
                     <button id="tool-transparency" class="btn btn-small">Transparency</button>
                     <button id="tool-wand" class="btn btn-small">Magic Wand</button>
+                    <button id="tool-eraser" class="btn btn-small" title="Eraser (D)">Eraser</button>
                 </div>
             </div>
             <div class="setting-group">
@@ -203,6 +204,13 @@
                 <div class="hint compact-hint">Click to select a contiguous colour region. Creates a selection for use with Inpaint (Selection mode) or Remove Object.</div>
                 <label>Tolerance <span id="wand-tolerance-label">30</span></label>
                 <input id="wand-tolerance" type="range" min="0" max="128" value="30">
+            </div>
+
+            <div id="eraser-settings" class="setting-group" hidden>
+                <div class="hint compact-hint">Drag to make pixels transparent. Size 1 erases single pixels. Use [ and ] to change size.</div>
+                <label>Size <span id="eraser-size-label">10</span>px</label>
+                <input id="eraser-size" type="range" min="0" max="17" value="7">
+                <label><input id="eraser-soft" type="checkbox"> Soft edges</label>
             </div>
 
             <div id="transparency-settings" class="setting-group" hidden>

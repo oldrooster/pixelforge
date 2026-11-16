@@ -90,6 +90,8 @@ export function render() {
             { x: state.floatingSelection.x, y: state.floatingSelection.y, w: state.floatingSelection.w, h: state.floatingSelection.h },
             "#35d07f"
         );
+    } else if (state.eraseCanvas) {
+        ctx.drawImage(state.eraseCanvas, 0, 0);
     } else {
         ctx.drawImage(state.originalImage, 0, 0);
         state.layers.forEach((layer, idx) => {
@@ -122,6 +124,10 @@ export function render() {
         ctx.drawImage(state.inpaintMaskCanvas, 0, 0);
         ctx.restore();
     }
+
+    if (state.activeTool === "eraser" && state.hoverPos) {
+        drawEraserOutline(state.hoverPos);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -138,27 +144,29 @@ export function buildCompositeCanvas() {
 }
 
 export function replaceWithRasterCanvas(newCanvas) {
-    const img = new Image();
-    img.onload = () => {
-        state.originalImage = img;
-        canvas.width = img.width;
-        canvas.height = img.height;
+    // A canvas is a valid drawImage source, so use it directly as the new base
+    // image (synchronous; avoids a PNG encode/decode round trip). Callers must
+    // pass a canvas they no longer modify.
+    state.originalImage = newCanvas;
+    state.eraseCanvas = null;
+    state.eraseCtx = null;
+    state.eraseData = null;
+    canvas.width = newCanvas.width;
+    canvas.height = newCanvas.height;
 
-        state.activeBrushCanvas = document.createElement("canvas");
-        state.activeBrushCanvas.width = img.width;
-        state.activeBrushCanvas.height = img.height;
-        state.activeBrushCtx = state.activeBrushCanvas.getContext("2d");
+    state.activeBrushCanvas = document.createElement("canvas");
+    state.activeBrushCanvas.width = newCanvas.width;
+    state.activeBrushCanvas.height = newCanvas.height;
+    state.activeBrushCtx = state.activeBrushCanvas.getContext("2d");
 
-        state.layers = [];
-        state.selectedLayerIndex = -1;
-        clearCropState();
-        clearSelectionState();
-        render();
-        renderLayersPanel();
-        syncResizeInputs();
-        pushUndo();
-    };
-    img.src = newCanvas.toDataURL("image/png");
+    state.layers = [];
+    state.selectedLayerIndex = -1;
+    clearCropState();
+    clearSelectionState();
+    render();
+    renderLayersPanel();
+    syncResizeInputs();
+    pushUndo();
 }
 
 export function flattenToBlob() {
@@ -440,4 +448,133 @@ export function createSelectionMaskBlob(rect) {
         mctx.fillRect(Math.floor(rect.x), Math.floor(rect.y), Math.floor(rect.w), Math.floor(rect.h));
         maskCanvas.toBlob(resolve, "image/png");
     });
+}
+
+// ---------------------------------------------------------------------------
+// Eraser: strokes edit a flattened working copy, committed as one undo step.
+// ---------------------------------------------------------------------------
+export const ERASER_SIZES = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50, 60, 80, 100];
+
+export function getEraserSize() {
+    return ERASER_SIZES[parseInt(dom.eraserSize.value, 10)] ?? 10;
+}
+
+// Hard-edge stamp centre: pixel centre for odd sizes, pixel corner for even sizes,
+// so size 1 is exactly the pixel under the cursor and size 2 is a 2x2 block.
+function eraserCentre(pos, size) {
+    return size % 2 === 1
+        ? { x: Math.floor(pos.x) + 0.5, y: Math.floor(pos.y) + 0.5 }
+        : { x: Math.round(pos.x), y: Math.round(pos.y) };
+}
+
+const _offsetCache = new Map();
+function eraserOffsets(size) {
+    if (_offsetCache.has(size)) { return _offsetCache.get(size); }
+    // Offsets of pixels (relative to floor(centre - r)) whose centres lie inside the circle.
+    const r = size / 2;
+    const span = Math.ceil(size) + 1;
+    const c = size % 2 === 1 ? 0.5 : 0;
+    const offsets = [];
+    for (let j = -span; j <= span; j++) {
+        for (let i = -span; i <= span; i++) {
+            const dx = i + 0.5 - c;
+            const dy = j + 0.5 - c;
+            if (dx * dx + dy * dy <= r * r) { offsets.push([i, j]); }
+        }
+    }
+    _offsetCache.set(size, offsets);
+    return offsets;
+}
+
+function hardStamp(pos, size, dirty) {
+    const centre = eraserCentre(pos, size);
+    const bx = Math.floor(centre.x);
+    const by = Math.floor(centre.y);
+    const w = state.eraseCanvas.width;
+    const h = state.eraseCanvas.height;
+    const d = state.eraseData.data;
+    for (const [i, j] of eraserOffsets(size)) {
+        const x = bx + i;
+        const y = by + j;
+        if (x < 0 || y < 0 || x >= w || y >= h) { continue; }
+        d[(y * w + x) * 4 + 3] = 0;
+        if (x < dirty.x0) { dirty.x0 = x; }
+        if (y < dirty.y0) { dirty.y0 = y; }
+        if (x > dirty.x1) { dirty.x1 = x; }
+        if (y > dirty.y1) { dirty.y1 = y; }
+    }
+}
+
+function eraseSegment(from, to) {
+    const size = getEraserSize();
+    if (dom.eraserSoft.checked) {
+        const c = state.eraseCtx;
+        c.save();
+        c.globalCompositeOperation = "destination-out";
+        c.lineCap = "round";
+        c.lineJoin = "round";
+        c.lineWidth = size;
+        c.beginPath();
+        c.moveTo(from.x, from.y);
+        c.lineTo(to.x + 0.01, to.y);
+        c.stroke();
+        c.restore();
+        // Keep the pixel buffer in sync in case the user toggles mode mid-image.
+        state.eraseData = c.getImageData(0, 0, state.eraseCanvas.width, state.eraseCanvas.height);
+        return;
+    }
+    const dist = Math.hypot(to.x - from.x, to.y - from.y);
+    const spacing = Math.max(0.5, size / 4);
+    const steps = Math.max(1, Math.ceil(dist / spacing));
+    const dirty = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        hardStamp({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t }, size, dirty);
+    }
+    if (dirty.x1 >= dirty.x0) {
+        state.eraseCtx.putImageData(state.eraseData, 0, 0, dirty.x0, dirty.y0, dirty.x1 - dirty.x0 + 1, dirty.y1 - dirty.y0 + 1);
+    }
+}
+
+export function startErase(pos) {
+    state.eraseCanvas = buildCompositeCanvas();
+    state.eraseCtx = state.eraseCanvas.getContext("2d", { willReadFrequently: true });
+    state.eraseData = state.eraseCtx.getImageData(0, 0, state.eraseCanvas.width, state.eraseCanvas.height);
+    state.eraseLast = pos;
+    eraseSegment(pos, pos);
+    render();
+}
+
+export function continueErase(pos) {
+    if (!state.eraseCanvas || !state.eraseLast) { return; }
+    eraseSegment(state.eraseLast, pos);
+    state.eraseLast = pos;
+    render();
+}
+
+export function endErase() {
+    if (!state.eraseCanvas || !state.eraseLast) { return; }
+    state.eraseLast = null;
+    replaceWithRasterCanvas(state.eraseCanvas);
+}
+
+function drawEraserOutline(pos) {
+    const size = getEraserSize();
+    const soft = dom.eraserSoft.checked;
+    const centre = soft ? pos : eraserCentre(pos, size);
+    const lw = 1 / state.zoomLevel;
+    ctx.save();
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    if (!soft && size <= 2) {
+        ctx.rect(Math.floor(centre.x - size / 2), Math.floor(centre.y - size / 2), size, size);
+    } else {
+        ctx.arc(centre.x, centre.y, size / 2, 0, Math.PI * 2);
+    }
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.9)";
+    ctx.stroke();
+    ctx.setLineDash([3 * lw, 3 * lw]);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.stroke();
+    ctx.restore();
 }

@@ -39,6 +39,12 @@ export const state = {
     inpaintMaskCanvas: null,
     inpaintMaskCtx: null,
 
+    eraseCanvas: null,      // flattened working copy while an eraser stroke is in progress
+    eraseCtx: null,
+    eraseData: null,        // ImageData of eraseCanvas (hard-edge mode edits pixels directly)
+    eraseLast: null,
+    hoverPos: null,         // cursor position over the canvas, for the eraser outline
+
     thumbSlots: [],
     activeThumbIndex: -1,
 

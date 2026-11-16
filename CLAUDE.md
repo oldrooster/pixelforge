@@ -12,7 +12,7 @@ app/static/js/           Native ES modules, no bundler or build step; loaded via
   markup.js   Entry point: wires all event listeners (tools, mouse, keyboard, drag/drop, paste, zoom/wheel)
   state.js    Single shared mutable `state` object; modules read and write it directly
   dom.js      Registry of every DOM element (`dom.xxx`) plus `canvas` and `ctx`
-  canvas.js   Render loop, zoom, activateCanvas, composite helpers, crop/selection/resize, inpaint mask
+  canvas.js   Render loop, zoom, activateCanvas, composite helpers, crop/selection/resize, inpaint mask, eraser
   layers.js   Layer drawing and panel, undo/redo, flood fill, transparency fill, defringe, shapes
   thumbs.js   Thumbnail strip (images and videos), per-thumbnail saved state, loadImageFile
   ui.js       TOOL_CONFIG table (tool → panel/title/cursor), setTool, notices, status helpers
@@ -27,7 +27,7 @@ Other docs: `README.md` (features, env vars, shortcuts), `FEATURES.md` and `REFA
 - **Adding a UI control:** add the markup in `index.html`, register it in `dom.js`, then wire the listener in `markup.js`. The logic usually goes in `layers.js` or `canvas.js`.
 - **Adding a tool:** add a button `#tool-<name>` and a `#<name>-settings` panel, then add entries in `dom.toolButtons`, `TOOL_CONFIG` in `ui.js`, and the keyboard map in `markup.js` (`simpleTools`).
 - **Circular imports** between canvas.js, layers.js and ui.js are intentional; ES live bindings handle them. Don't call imported functions at module top level.
-- **Whole-image pixel operations** (transparency, defringe, crop, resize) follow one pattern: `buildCompositeCanvas()`, edit the ImageData, then `replaceWithRasterCanvas(canvas)`. That flattens the layers and pushes an undo step.
+- **Whole-image pixel operations** (transparency, defringe, crop, resize) follow one pattern: `buildCompositeCanvas()`, edit the ImageData, then `replaceWithRasterCanvas(canvas)`. That call is synchronous and uses the canvas itself as `state.originalImage`, so don't keep modifying the canvas afterwards. It flattens the layers and pushes an undo step.
 - **Thumbnails:** each slot keeps `savedState` (image, layers, undo). Call `saveCurrentThumbState()` before switching or loading a new image.
 - **Mouse drags:** `mousedown` is on the canvas, while `mousemove` and `mouseup` are on `window` so drags keep tracking outside the canvas. Rectangle drags (crop/select) clamp and snap to whole pixels.
 - **Wheel:** a plain wheel scrolls the canvas; Ctrl/Cmd+wheel zooms toward the cursor.

@@ -8,7 +8,8 @@ PixelForge is a standalone browser-based image markup and AI editing tool powere
 - Brush, text, shapes (line / arrow / rect / ellipse), flood fill, colour picker
 - Crop, resize, and selection move
 - Magic Wand — flood-select a colour region for use with Inpaint or Remove Object
-- Transparency — region flood-fill with optional edge detection, or AI background removal via rembg
+- Transparency — region flood-fill (contiguous or whole-image colour) with optional edge detection, AI background removal via rembg, and Defringe edge cleanup
+- Eraser — erase to transparency, from single pixels up to 100px, hard or soft edges
 
 **AI tools** (all via Gemini Enterprise Agent Platform)
 - **Inpaint** — edit a masked region using a text prompt (selection or brush mask)
@@ -132,6 +133,7 @@ Sessions are stored as JSON files (one per save), each containing the flattened 
 | E | Shapes — Ellipse |
 | S | Resize |
 | X | Transparency |
+| D | Eraser (`[` / `]` change size) |
 | I | Inpaint |
 | M | Toggle inpaint mask mode (Selection / Brush) |
 | Enter | Apply crop or selection move (when active) |

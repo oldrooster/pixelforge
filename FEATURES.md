@@ -6,7 +6,7 @@ Features are grouped by theme. Each entry notes the effort level and which parts
 
 ## Canvas & Editing
 
-### F1 — Eraser tool
+### ~~F1 — Eraser tool~~ ✅
 A dedicated eraser that makes pixels transparent rather than painting over them. Complements the transparency fill and would work with the existing brush layer system. Low effort — reuses brush drawing code with `globalCompositeOperation = "destination-out"`.
 
 ### F2 — Opacity / blend mode per layer

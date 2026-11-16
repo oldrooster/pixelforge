@@ -19,6 +19,7 @@ const TOOL_CONFIG = {
     select:       { panel: dom.selectSettings,       title: "Select controls",         desc: "Select an area and drag it to move.",                                                         cursor: "crosshair" },
     resize:       { panel: dom.resizeSettings,       title: "Resize controls",         desc: "Set target width and height, then apply resize.",                                             cursor: "crosshair" },
     wand:         { panel: dom.wandSettings,          title: "Magic Wand controls",     desc: "Click a colour region to auto-select it as a selection mask for Inpaint or Remove.",       cursor: "crosshair" },
+    eraser:       { panel: dom.eraserSettings,       title: "Eraser controls",         desc: "Drag to erase pixels to transparency.",                                                     cursor: "crosshair" },
     transparency: { panel: dom.transparencySettings, title: "Transparency controls",   desc: "Use region fill or AI removal to make backgrounds transparent.",                             cursor: "crosshair" },
     inpaint:      { panel: dom.inpaintSettings,      title: "Inpaint controls",        desc: "Use selection mask or brush mask, then inpaint via Vertex AI.",                             cursor: "crosshair" },
     remove:       { panel: dom.removeSettings,       title: "Remove Object controls",  desc: "Paint over an object and AI will erase it and fill the background.",                        cursor: "crosshair" },

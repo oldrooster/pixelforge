@@ -15,7 +15,7 @@ import {
     clearCropState, clearSelectionState, updateCropLabel, updateSelectionLabel,
     createFloatingSelection, pointInRect,
     paintInpaintMaskDot, paintInpaintMaskStroke, clearInpaintMask,
-    wandFloodSelect,
+    wandFloodSelect, startErase, continueErase, endErase, ERASER_SIZES,
 } from "./canvas.js";
 import {
     renderLayersPanel, pushUndo, updateHistoryButtons, restoreSnapshot,
@@ -73,6 +73,12 @@ dom.fontSize.addEventListener("input", () => { dom.fontSizeLabel.textContent = d
 dom.strokeSize.addEventListener("input", () => { dom.strokeSizeLabel.textContent = dom.strokeSize.value; });
 dom.inpaintBrushSize.addEventListener("input", () => { dom.inpaintBrushSizeLabel.textContent = dom.inpaintBrushSize.value; });
 dom.removeBrushSize.addEventListener("input", () => { dom.removeBrushSizeLabel.textContent = dom.removeBrushSize.value; });
+const updateEraserSizeLabel = () => {
+    dom.eraserSizeLabel.textContent = ERASER_SIZES[parseInt(dom.eraserSize.value, 10)];
+    render();
+};
+dom.eraserSize.addEventListener("input", updateEraserSizeLabel);
+dom.eraserSoft.addEventListener("change", () => render());
 dom.wandTolerance.addEventListener("input", () => { dom.wandToleranceLabel.textContent = dom.wandTolerance.value; });
 dom.generateCount.addEventListener("input", () => { dom.generateCountLabel.textContent = dom.generateCount.value; });
 dom.refineCount.addEventListener("input", () => { dom.refineCountLabel.textContent = dom.refineCount.value; });
@@ -326,6 +332,11 @@ canvas.addEventListener("mousedown", event => {
         return;
     }
 
+    if (state.activeTool === "eraser") {
+        startErase(pos);
+        return;
+    }
+
     if (state.activeTool === "picker") {
         const px = Math.round(pos.x);
         const py = Math.round(pos.y);
@@ -431,6 +442,12 @@ function clampedPixelPos(pos) {
 window.addEventListener("mousemove", event => {
     if (!state.originalImage) { return; }
     const rawPos = getCanvasPos(event);
+
+    if (state.activeTool === "eraser") {
+        state.hoverPos = event.target === canvas ? rawPos : null;
+        if (state.eraseLast) { continueErase(rawPos); } else { render(); }
+        return;
+    }
     const isRectDrag = state.dragStart && !state.isMovingSelection &&
         (state.activeTool === "crop" || state.activeTool === "select" ||
          (state.activeTool === "inpaint" && dom.inpaintMaskModeRadios.find(r => r.checked)?.value === "selection"));
@@ -540,6 +557,11 @@ window.addEventListener("mousemove", event => {
 window.addEventListener("mouseup", () => {
     if (!state.originalImage) { return; }
 
+    if (state.activeTool === "eraser") {
+        endErase();
+        return;
+    }
+
     if (state.activeTool === "crop" && state.dragStart && state.lastMousePos) {
         state.cropRect = normalizeRect(state.dragStart.x, state.dragStart.y, state.lastMousePos.x, state.lastMousePos.y);
         state.dragStart = null;
@@ -603,6 +625,13 @@ window.addEventListener("mouseup", () => {
     }
 });
 
+canvas.addEventListener("mouseleave", () => {
+    if (state.activeTool === "eraser" && state.hoverPos) {
+        state.hoverPos = null;
+        render();
+    }
+});
+
 // ---------------------------------------------------------------------------
 // Text double-click edit (F7)
 // ---------------------------------------------------------------------------
@@ -631,7 +660,9 @@ canvas.addEventListener("dblclick", event => {
 // ---------------------------------------------------------------------------
 document.addEventListener("keydown", event => {
     const tag = event.target?.tagName ?? "";
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || event.target?.isContentEditable) { return; }
+    // Sliders/checkboxes/radios keep focus after use; still allow shortcuts then.
+    const nonTextInput = tag === "INPUT" && ["range", "checkbox", "radio", "button", "color"].includes(event.target.type);
+    if ((tag === "INPUT" && !nonTextInput) || tag === "TEXTAREA" || tag === "SELECT" || event.target?.isContentEditable) { return; }
 
     if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "z") {
         event.preventDefault(); dom.undoBtn.click(); return;
@@ -645,8 +676,16 @@ document.addEventListener("keydown", event => {
     if (event.ctrlKey || event.metaKey) { return; }
 
     const key = event.key.toLowerCase();
-    const simpleTools = { b: "brush", t: "text", v: "select", c: "crop", f: "fill", p: "picker", s: "resize", x: "transparency", i: "inpaint" };
+    const simpleTools = { b: "brush", t: "text", v: "select", c: "crop", f: "fill", p: "picker", s: "resize", x: "transparency", i: "inpaint", d: "eraser" };
     if (simpleTools[key]) { setTool(simpleTools[key]); event.preventDefault(); return; }
+
+    if (state.activeTool === "eraser" && (key === "[" || key === "]")) {
+        const v = parseInt(dom.eraserSize.value, 10) + (key === "]" ? 1 : -1);
+        dom.eraserSize.value = String(Math.max(0, Math.min(ERASER_SIZES.length - 1, v)));
+        updateEraserSizeLabel();
+        event.preventDefault();
+        return;
+    }
 
     const shapeKeys = { l: "line", a: "arrow", r: "rect", e: "ellipse" };
     if (shapeKeys[key]) {
