@@ -4,7 +4,7 @@
 
 import { state } from "./state.js";
 import { canvas, dom } from "./dom.js";
-import { render, clearCropState, clearSelectionState } from "./canvas.js";
+import { render, clearCropState, dropFloatingSelection, getActiveSelectionRect, getActiveSelectionPath, hasActiveSelection } from "./canvas.js";
 
 // ---------------------------------------------------------------------------
 // Tool configuration table
@@ -16,7 +16,7 @@ const TOOL_CONFIG = {
     shapes:       { panel: dom.shapeSettings,        title: "Shape controls",          desc: "Pick a shape type and drag on canvas to draw.",                                               cursor: "crosshair" },
     picker:       { panel: dom.pickerSettings,       title: "Picker controls",         desc: "Sample a color and return to your previous tool.",                                            cursor: "crosshair" },
     crop:         { panel: dom.cropSettings,         title: "Crop controls",           desc: "Drag to define a crop area, then apply crop.",                                                cursor: "crosshair" },
-    select:       { panel: dom.selectSettings,       title: "Select controls",         desc: "Select an area and drag it to move.",                                                         cursor: "crosshair" },
+    select:       { panel: dom.selectSettings,       title: "Select controls",         desc: "Select a rectangle or lasso area and drag it to move.",                                       cursor: "crosshair" },
     resize:       { panel: dom.resizeSettings,       title: "Resize controls",         desc: "Set target width and height, then apply resize.",                                             cursor: "crosshair" },
     wand:         { panel: dom.wandSettings,          title: "Magic Wand controls",     desc: "Click a colour region to auto-select it as a selection mask for Inpaint or Remove.",       cursor: "crosshair" },
     eraser:       { panel: dom.eraserSettings,       title: "Eraser controls",         desc: "Drag to erase pixels to transparency.",                                                     cursor: "crosshair" },
@@ -74,6 +74,9 @@ export function updateToolSettingsForActiveTool() {
     if (state.activeTool === "shapes") {
         updateShapeFillVisibility();
     }
+    if (state.activeTool === "transparency") {
+        updateDefringeScope();
+    }
 
     animateContextRefresh();
 }
@@ -85,7 +88,13 @@ export function setTool(tool) {
     if (!dom.toolButtons[tool]) { return; }
 
     if (state.activeTool === "crop" && tool !== "crop") { clearCropState(); }
-    if (state.activeTool === "select" && tool !== "select") { clearSelectionState(); }
+    // Leaving Select discards an unapplied move but keeps the area, so Defringe and
+    // Inpaint can be limited to it.
+    if (state.activeTool === "select" && tool !== "select") {
+        state.lassoPoints = null;
+        state.dragStart = null;
+        dropFloatingSelection();
+    }
 
     if (tool !== "picker") { state.previousTool = tool; }
 
@@ -94,6 +103,23 @@ export function setTool(tool) {
         dom.toolButtons[key].classList.toggle("active", key === tool);
     });
     updateToolSettingsForActiveTool();
+}
+
+export function getSelectShape() {
+    return dom.selectShapeRadios.find(r => r.checked)?.value ?? "rect";
+}
+
+// Tell the user whether Defringe applies to the whole image or just the selection.
+export function updateDefringeScope() {
+    const has = hasActiveSelection();
+    let text = "Applies to the whole image. Make a selection with the Select tool to limit it.";
+    if (has) {
+        const rect = getActiveSelectionRect();
+        const kind = getActiveSelectionPath() ? "lasso" : "rectangle";
+        text = "Limited to the " + kind + " selection (" + Math.floor(rect.w) + " x " + Math.floor(rect.h) + ").";
+    }
+    if (dom.defringeScope.textContent !== text) { dom.defringeScope.textContent = text; }
+    dom.defringeClearSelectionBtn.hidden = !has;
 }
 
 // ---------------------------------------------------------------------------

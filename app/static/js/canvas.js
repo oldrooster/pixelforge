@@ -6,7 +6,7 @@ import { canvas, ctx, dom } from "./dom.js";
 // Circular with layers.js — ES modules handle this correctly via live bindings.
 import { drawLayer, renderSelection, renderLayersPanel, pushUndo, updateHistoryButtons } from "./layers.js";
 // Circular with ui.js — same reason.
-import { getInpaintMaskMode } from "./ui.js";
+import { getInpaintMaskMode, updateDefringeScope } from "./ui.js";
 
 // ---------------------------------------------------------------------------
 // Zoom
@@ -86,10 +86,7 @@ export function render() {
             Math.round(state.floatingSelection.x),
             Math.round(state.floatingSelection.y)
         );
-        drawOverlayRect(
-            { x: state.floatingSelection.x, y: state.floatingSelection.y, w: state.floatingSelection.w, h: state.floatingSelection.h },
-            "#35d07f"
-        );
+        drawSelectionOutline(getActiveSelectionRect(), getActiveSelectionPath(), "#35d07f");
     } else if (state.eraseCanvas) {
         ctx.drawImage(state.eraseCanvas, 0, 0);
     } else {
@@ -109,10 +106,19 @@ export function render() {
     }
 
     if (
-        (state.activeTool === "select" || (state.activeTool === "inpaint" && getInpaintMaskMode() === "selection")) &&
+        (state.activeTool === "select" || state.activeTool === "transparency" ||
+         (state.activeTool === "inpaint" && getInpaintMaskMode() === "selection")) &&
         state.selectionRect && !state.floatingSelection
     ) {
-        drawOverlayRect(state.selectionRect, "#35d07f");
+        drawSelectionOutline(state.selectionRect, state.selectionPath, "#35d07f");
+    }
+
+    if (state.lassoPoints && state.lassoPoints.length > 1) {
+        drawOverlayPolyline(state.lassoPoints, false, "#35d07f");
+    }
+
+    if (state.activeTool === "transparency") {
+        updateDefringeScope();
     }
 
     if (
@@ -143,10 +149,12 @@ export function buildCompositeCanvas() {
     return out;
 }
 
-export function replaceWithRasterCanvas(newCanvas) {
+export function replaceWithRasterCanvas(newCanvas, { keepSelection = false } = {}) {
     // A canvas is a valid drawImage source, so use it directly as the new base
     // image (synchronous; avoids a PNG encode/decode round trip). Callers must
     // pass a canvas they no longer modify.
+    // keepSelection keeps the selection area (not a floating move) when the size is unchanged.
+    const sameSize = newCanvas.width === canvas.width && newCanvas.height === canvas.height;
     state.originalImage = newCanvas;
     state.eraseCanvas = null;
     state.eraseCtx = null;
@@ -162,7 +170,7 @@ export function replaceWithRasterCanvas(newCanvas) {
     state.layers = [];
     state.selectedLayerIndex = -1;
     clearCropState();
-    clearSelectionState();
+    if (keepSelection && sameSize) { dropFloatingSelection(); } else { clearSelectionState(); }
     render();
     renderLayersPanel();
     syncResizeInputs();
@@ -219,6 +227,23 @@ export function drawOverlayRect(rect, color) {
     ctx.restore();
 }
 
+function drawOverlayPolyline(points, closed, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) { ctx.lineTo(points[i].x, points[i].y); }
+    if (closed) { ctx.closePath(); }
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawSelectionOutline(rect, path, color) {
+    if (path && path.length > 2) { drawOverlayPolyline(path, true, color); } else { drawOverlayRect(rect, color); }
+}
+
 // ---------------------------------------------------------------------------
 // Resize inputs sync
 // ---------------------------------------------------------------------------
@@ -258,6 +283,8 @@ export function applyCrop() {
 // ---------------------------------------------------------------------------
 export function clearSelectionState() {
     state.selectionRect = null;
+    state.selectionPath = null;
+    state.lassoPoints = null;
     state.floatingSelection = null;
     state.selectionBackground = null;
     state.isMovingSelection = false;
@@ -275,7 +302,95 @@ export function getActiveSelectionRect() {
     return state.selectionRect;
 }
 
-export function createFloatingSelection(rect) {
+// Lasso polygon of the active selection in canvas coords, or null for a rectangle.
+export function getActiveSelectionPath() {
+    const f = state.floatingSelection;
+    if (f) {
+        return f.path ? f.path.map(p => ({ x: p.x + f.x, y: p.y + f.y })) : null;
+    }
+    return state.selectionPath;
+}
+
+export function hasActiveSelection() {
+    const rect = clampRectToCanvas(getActiveSelectionRect());
+    return !!rect && rect.w >= 1 && rect.h >= 1;
+}
+
+export function pointInSelection(x, y) {
+    const f = state.floatingSelection;
+    if (!f || !pointInRect(x, y, f)) { return false; }
+    if (!f.mask) { return true; }
+    const mx = Math.floor(x - f.x);
+    const my = Math.floor(y - f.y);
+    return mx >= 0 && my >= 0 && mx < f.w && my < f.h && f.mask[my * f.w + mx] === 1;
+}
+
+// Discard an unapplied move but keep the selected area where it was originally made,
+// so other tools (e.g. Defringe) can be limited to it.
+export function dropFloatingSelection() {
+    const f = state.floatingSelection;
+    if (!f) { return; }
+    state.selectionRect = { x: f.origX, y: f.origY, w: f.w, h: f.h };
+    state.selectionPath = f.path ? f.path.map(p => ({ x: p.x + f.origX, y: p.y + f.origY })) : null;
+    state.floatingSelection = null;
+    state.selectionBackground = null;
+    state.isMovingSelection = false;
+    updateSelectionLabel(state.selectionRect);
+}
+
+// Binary mask of pixels whose centres lie inside the polygon (even-odd rule).
+function rasterizePolygon(path, w, h) {
+    const mask = new Uint8Array(w * h);
+    let minY = Infinity, maxY = -Infinity;
+    for (const p of path) { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+    const y0 = Math.max(0, Math.floor(minY));
+    const y1 = Math.min(h - 1, Math.ceil(maxY));
+    const n = path.length;
+    const xs = [];
+    for (let y = y0; y <= y1; y++) {
+        const cy = y + 0.5;
+        xs.length = 0;
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+            const a = path[i];
+            const b = path[j];
+            if ((a.y > cy) !== (b.y > cy)) { xs.push(a.x + (cy - a.y) * (b.x - a.x) / (b.y - a.y)); }
+        }
+        xs.sort((p, q) => p - q);
+        for (let k = 0; k + 1 < xs.length; k += 2) {
+            const xa = Math.max(0, Math.ceil(xs[k] - 0.5));
+            const xb = Math.min(w - 1, Math.ceil(xs[k + 1] - 0.5) - 1);
+            for (let x = xa; x <= xb; x++) { mask[y * w + x] = 1; }
+        }
+    }
+    return mask;
+}
+
+// Full-canvas mask (1 = selected) for the active selection, or null when nothing is selected.
+export function buildSelectionMask() {
+    const rect = clampRectToCanvas(getActiveSelectionRect());
+    if (!rect || rect.w < 1 || rect.h < 1) { return null; }
+    const w = canvas.width;
+    const h = canvas.height;
+    const path = getActiveSelectionPath();
+    if (path) { return rasterizePolygon(path, w, h); }
+    const mask = new Uint8Array(w * h);
+    for (let y = rect.y; y < rect.y + rect.h; y++) { mask.fill(1, y * w + rect.x, y * w + rect.x + rect.w); }
+    return mask;
+}
+
+function polygonBounds(path) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of path) {
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    }
+    const x = Math.floor(minX);
+    const y = Math.floor(minY);
+    return { x, y, w: Math.ceil(maxX) - x, h: Math.ceil(maxY) - y };
+}
+
+export function createFloatingSelection(rect, path = null) {
+    if (path) { return createFloatingLasso(path); }
     const clamped = clampRectToCanvas(rect);
     if (!clamped || clamped.w < 2 || clamped.h < 2) { return; }
     const source = buildCompositeCanvas();
@@ -292,8 +407,64 @@ export function createFloatingSelection(rect) {
     bctx.drawImage(source, 0, 0);
     bctx.clearRect(clamped.x, clamped.y, clamped.w, clamped.h);
 
-    state.floatingSelection = { canvas: patch, x: clamped.x, y: clamped.y, w: clamped.w, h: clamped.h };
+    state.floatingSelection = {
+        canvas: patch, x: clamped.x, y: clamped.y, w: clamped.w, h: clamped.h,
+        origX: clamped.x, origY: clamped.y, path: null, mask: null,
+    };
     state.selectionRect = { x: clamped.x, y: clamped.y, w: clamped.w, h: clamped.h };
+    state.selectionPath = null;
+    updateSelectionLabel(state.selectionRect);
+}
+
+// Lasso: lift exactly the pixels inside the polygon (hard edge, so an unmoved
+// selection recomposites to the original image).
+function createFloatingLasso(path) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const bounds = clampRectToCanvas(polygonBounds(path));
+    if (!bounds || bounds.w < 2 || bounds.h < 2) { return; }
+    const full = rasterizePolygon(path, w, h);
+
+    const mask = new Uint8Array(bounds.w * bounds.h);
+    let count = 0;
+    for (let y = 0; y < bounds.h; y++) {
+        for (let x = 0; x < bounds.w; x++) {
+            if (full[(y + bounds.y) * w + x + bounds.x]) { mask[y * bounds.w + x] = 1; count++; }
+        }
+    }
+    if (count === 0) { return; }
+
+    const source = buildCompositeCanvas();
+    const sctx = source.getContext("2d");
+    const all = sctx.getImageData(0, 0, w, h);
+    const patchData = new ImageData(bounds.w, bounds.h);
+    for (let y = 0; y < bounds.h; y++) {
+        for (let x = 0; x < bounds.w; x++) {
+            if (!mask[y * bounds.w + x]) { continue; }
+            const si = ((y + bounds.y) * w + x + bounds.x) * 4;
+            const di = (y * bounds.w + x) * 4;
+            patchData.data[di] = all.data[si];
+            patchData.data[di + 1] = all.data[si + 1];
+            patchData.data[di + 2] = all.data[si + 2];
+            patchData.data[di + 3] = all.data[si + 3];
+            all.data[si + 3] = 0;
+        }
+    }
+    const patch = document.createElement("canvas");
+    patch.width = bounds.w;
+    patch.height = bounds.h;
+    patch.getContext("2d").putImageData(patchData, 0, 0);
+
+    sctx.putImageData(all, 0, 0);
+    state.selectionBackground = source;
+
+    const relPath = path.map(p => ({ x: p.x - bounds.x, y: p.y - bounds.y }));
+    state.floatingSelection = {
+        canvas: patch, x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h,
+        origX: bounds.x, origY: bounds.y, path: relPath, mask,
+    };
+    state.selectionRect = { ...bounds };
+    state.selectionPath = null;
     updateSelectionLabel(state.selectionRect);
 }
 
@@ -312,8 +483,19 @@ export function deleteSelection() {
     if (!state.originalImage) { return; }
     const rect = clampRectToCanvas(getActiveSelectionRect());
     if (!rect || rect.w < 1 || rect.h < 1) { return; }
+    const path = getActiveSelectionPath();
     const source = buildCompositeCanvas();
-    source.getContext("2d").clearRect(rect.x, rect.y, rect.w, rect.h);
+    const sctx = source.getContext("2d");
+    if (path) {
+        const mask = buildSelectionMask();
+        const img = sctx.getImageData(0, 0, source.width, source.height);
+        for (let p = 0; p < mask.length; p++) {
+            if (mask[p]) { img.data[p * 4 + 3] = 0; }
+        }
+        sctx.putImageData(img, 0, 0);
+    } else {
+        sctx.clearRect(rect.x, rect.y, rect.w, rect.h);
+    }
     replaceWithRasterCanvas(source);
 }
 
@@ -436,16 +618,25 @@ export function createInpaintBrushMaskBlob() {
     });
 }
 
-export function createSelectionMaskBlob(rect) {
+// White = inpaint, black = keep. Follows the active selection's shape (rectangle or lasso).
+export function createSelectionMaskBlob() {
     return new Promise(resolve => {
+        const w = canvas.width;
+        const h = canvas.height;
+        const mask = buildSelectionMask();
         const maskCanvas = document.createElement("canvas");
-        maskCanvas.width = canvas.width;
-        maskCanvas.height = canvas.height;
+        maskCanvas.width = w;
+        maskCanvas.height = h;
         const mctx = maskCanvas.getContext("2d");
-        mctx.fillStyle = "#000";
-        mctx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
-        mctx.fillStyle = "#fff";
-        mctx.fillRect(Math.floor(rect.x), Math.floor(rect.y), Math.floor(rect.w), Math.floor(rect.h));
+        const img = mctx.createImageData(w, h);
+        for (let p = 0; p < w * h; p++) {
+            const v = mask && mask[p] ? 255 : 0;
+            img.data[p * 4] = v;
+            img.data[p * 4 + 1] = v;
+            img.data[p * 4 + 2] = v;
+            img.data[p * 4 + 3] = 255;
+        }
+        mctx.putImageData(img, 0, 0);
         maskCanvas.toBlob(resolve, "image/png");
     });
 }

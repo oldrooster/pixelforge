@@ -4,7 +4,8 @@
 
 import { state } from "./state.js";
 import { canvas, ctx, dom } from "./dom.js";
-import { render, buildCompositeCanvas, replaceWithRasterCanvas, syncResizeInputs } from "./canvas.js";
+import { showTopNotice } from "./ui.js";
+import { render, buildCompositeCanvas, replaceWithRasterCanvas, syncResizeInputs, dropFloatingSelection, buildSelectionMask } from "./canvas.js";
 
 // ---------------------------------------------------------------------------
 // Drawing primitives
@@ -527,7 +528,7 @@ export function transparencyFillAt(px, py) {
             if (matches(p * 4)) { outData[p * 4 + 3] = 0; }
         }
         outCtx.putImageData(out, 0, 0);
-        replaceWithRasterCanvas(outCanvas);
+        replaceWithRasterCanvas(outCanvas, { keepSelection: true });
         return;
     }
 
@@ -553,7 +554,7 @@ export function transparencyFillAt(px, py) {
     }
 
     outCtx.putImageData(out, 0, 0);
-    replaceWithRasterCanvas(outCanvas);
+    replaceWithRasterCanvas(outCanvas, { keepSelection: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -561,11 +562,15 @@ export function transparencyFillAt(px, py) {
 //   mode "erase"  - make the outer `width` px of opaque pixels transparent (contract/choke)
 //   mode "color"  - repaint them with a solid colour (keeps their alpha/anti-aliasing)
 //   mode "inside" - repaint them with colours pulled from just inside the shape
+// With an active selection (rectangle or lasso), only pixels inside it change;
+// distance from transparency is still measured across the whole image.
 // ---------------------------------------------------------------------------
 export function defringeEdges(mode, width, hexColor) {
     if (!state.originalImage) { return; }
     const w = canvas.width;
     const h = canvas.height;
+    dropFloatingSelection();
+    const limit = buildSelectionMask();
     const composite = buildCompositeCanvas();
     const cctx = composite.getContext("2d");
     const img = cctx.getImageData(0, 0, w, h);
@@ -602,6 +607,18 @@ export function defringeEdges(mode, width, hexColor) {
         frontier = next;
     }
 
+    // fringe keeps every edge pixel; ring is then cut down to the ones we may change.
+    const fringe = limit ? ring.slice() : ring;
+    if (limit) {
+        for (let p = 0; p < ring.length; p++) {
+            if (!limit[p]) { ring[p] = 0; }
+        }
+        if (!ring.some(v => v !== 0)) {
+            showTopNotice("No transparent edges inside the selection to defringe.", "error", 4200);
+            return;
+        }
+    }
+
     if (mode === "erase") {
         for (let p = 0; p < ring.length; p++) {
             if (ring[p]) { d[p * 4 + 3] = 0; }
@@ -627,7 +644,7 @@ export function defringeEdges(mode, width, hexColor) {
                 const y = (p - x) / w;
                 let sr = 0, sg = 0, sb = 0, n = 0;
                 forEachNeighbour(x, y, w, h, q => {
-                    if (d[q * 4 + 3] !== 0 && (ring[q] === 0 || ring[q] > k)) {
+                    if (d[q * 4 + 3] !== 0 && (fringe[q] === 0 || ring[q] > k)) {
                         sr += d[q * 4]; sg += d[q * 4 + 1]; sb += d[q * 4 + 2]; n++;
                     }
                 });
@@ -640,7 +657,7 @@ export function defringeEdges(mode, width, hexColor) {
     }
 
     cctx.putImageData(img, 0, 0);
-    replaceWithRasterCanvas(composite);
+    replaceWithRasterCanvas(composite, { keepSelection: true });
 }
 
 function forEachNeighbour(x, y, w, h, fn) {

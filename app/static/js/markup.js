@@ -6,14 +6,14 @@ import { canvas, dom } from "./dom.js";
 import {
     setTool, updateToolSettingsForActiveTool, updateShapeFillVisibility,
     updateTransparencyMethodUI, updateInpaintMaskModeUI, toggleInpaintMaskMode,
-    showTopNotice, dismissTopNotice, initToolPanels,
+    showTopNotice, dismissTopNotice, initToolPanels, getSelectShape,
     toggleNotifPanel, clearAllNotifications,
 } from "./ui.js";
 import {
     render, setZoom, applySelectionMove, applyCrop, applyResize, deleteSelection,
     getCanvasPos, normalizeRect, buildCompositeCanvas, flattenToBlob,
     clearCropState, clearSelectionState, updateCropLabel, updateSelectionLabel,
-    createFloatingSelection, pointInRect,
+    createFloatingSelection, pointInSelection,
     paintInpaintMaskDot, paintInpaintMaskStroke, clearInpaintMask,
     wandFloodSelect, startErase, continueErase, endErase, ERASER_SIZES,
 } from "./canvas.js";
@@ -92,6 +92,7 @@ dom.transparencyMethodRadios.forEach(r => r.addEventListener("change", updateTra
 dom.defringeModeRadios.forEach(r => r.addEventListener("change", () => {
     dom.defringeColorRow.hidden = dom.defringeModeRadios.find(x => x.checked)?.value !== "color";
 }));
+dom.defringeClearSelectionBtn.addEventListener("click", () => { clearSelectionState(); render(); });
 dom.defringeWidth.addEventListener("input", () => { dom.defringeWidthLabel.textContent = dom.defringeWidth.value; });
 dom.defringeApplyBtn.addEventListener("click", () => {
     const mode = dom.defringeModeRadios.find(r => r.checked)?.value ?? "erase";
@@ -338,16 +339,18 @@ canvas.addEventListener("mousedown", event => {
     }
 
     if (state.activeTool === "select" || (state.activeTool === "inpaint" && dom.inpaintMaskModeRadios.find(r => r.checked)?.value === "selection")) {
-        if (state.floatingSelection && pointInRect(pos.x, pos.y, state.floatingSelection)) {
+        if (state.floatingSelection && pointInSelection(pos.x, pos.y)) {
             state.isMovingSelection = true;
             state.selectionDragOffset = { x: pos.x - state.floatingSelection.x, y: pos.y - state.floatingSelection.y };
             return;
         }
-        state.dragStart = clampedPixelPos(pos);
-        state.lastMousePos = state.dragStart;
-        state.selectionRect = null;
-        state.floatingSelection = null;
-        state.selectionBackground = null;
+        clearSelectionState();
+        if (getSelectShape() === "lasso") {
+            state.lassoPoints = [clampedPos(pos)];
+        } else {
+            state.dragStart = clampedPixelPos(pos);
+            state.lastMousePos = state.dragStart;
+        }
         updateSelectionLabel(null);
         render();
         return;
@@ -470,6 +473,13 @@ canvas.addEventListener("mousedown", event => {
 
 // Snap to whole pixels and clamp to the canvas, so dragging past an edge
 // pins the rect to that edge instead of stopping short.
+function clampedPos(pos) {
+    return {
+        x: Math.max(0, Math.min(canvas.width, pos.x)),
+        y: Math.max(0, Math.min(canvas.height, pos.y)),
+    };
+}
+
 function clampedPixelPos(pos) {
     return {
         x: Math.max(0, Math.min(canvas.width, Math.round(pos.x))),
@@ -508,6 +518,15 @@ window.addEventListener("mousemove", event => {
             state.selectionRect = { x: state.floatingSelection.x, y: state.floatingSelection.y, w: state.floatingSelection.w, h: state.floatingSelection.h };
             updateSelectionLabel(state.selectionRect);
             render();
+            return;
+        }
+        if (state.lassoPoints) {
+            const pt = clampedPos(rawPos);
+            const last = state.lassoPoints[state.lassoPoints.length - 1];
+            if (Math.hypot(pt.x - last.x, pt.y - last.y) >= 0.5) {
+                state.lassoPoints.push(pt);
+                render();
+            }
             return;
         }
         if (state.dragStart) {
@@ -612,6 +631,13 @@ window.addEventListener("mouseup", () => {
     const selectionMaskMode = dom.inpaintMaskModeRadios.find(r => r.checked)?.value ?? "selection";
     if (state.activeTool === "select" || (state.activeTool === "inpaint" && selectionMaskMode === "selection")) {
         if (state.isMovingSelection) { state.isMovingSelection = false; return; }
+        if (state.lassoPoints) {
+            const points = state.lassoPoints;
+            state.lassoPoints = null;
+            if (points.length >= 3) { createFloatingSelection(null, points); }
+            render();
+            return;
+        }
         if (state.dragStart && state.lastMousePos) {
             state.selectionRect = normalizeRect(state.dragStart.x, state.dragStart.y, state.lastMousePos.x, state.lastMousePos.y);
             if (state.selectionRect.w > 3 && state.selectionRect.h > 3) {
@@ -751,7 +777,9 @@ document.addEventListener("keydown", event => {
 
     if (event.key === "Escape") {
         if (state.activeTool === "crop" && state.cropRect) { clearCropState(); render(); event.preventDefault(); return; }
-        if (state.activeTool === "select" && (state.selectionRect || state.floatingSelection)) { clearSelectionState(); render(); event.preventDefault(); return; }
+        if ((state.activeTool === "select" || state.activeTool === "transparency") && (state.selectionRect || state.floatingSelection || state.lassoPoints)) {
+            clearSelectionState(); render(); event.preventDefault(); return;
+        }
     }
 
     if (event.key !== "Delete" && event.key !== "Backspace") { return; }

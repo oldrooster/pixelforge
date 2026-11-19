@@ -156,7 +156,7 @@ export async function runVertexInpaint() {
                 showTopNotice("Create a selection first (Select tool), then run AI Inpaint.", "error", 5200);
                 return;
             }
-            maskBlob = await createSelectionMaskBlob(rect);
+            maskBlob = await createSelectionMaskBlob();
         } else {
             if (!state.inpaintMaskHasPaint) {
                 showTopNotice("Paint a brush mask first, then run AI Inpaint.", "error", 5200);
@@ -308,7 +308,7 @@ export async function runAiBackgroundRemoval() {
                 out.height = img.height;
                 out.getContext("2d").drawImage(img, 0, 0);
                 URL.revokeObjectURL(url);
-                replaceWithRasterCanvas(out);
+                replaceWithRasterCanvas(out, { keepSelection: true });
                 resolve();
             };
             img.onerror = () => {

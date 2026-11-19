@@ -188,7 +188,17 @@
             </div>
 
             <div id="select-settings" class="setting-group" hidden>
-                <div class="hint compact-hint">Drag to select an area, then drag it to move.</div>
+                <div class="hint compact-hint">Drag to select an area, then drag it to move. The selection also limits Defringe and Inpaint.</div>
+                <div id="select-shape" class="method-row" role="radiogroup" aria-label="Selection shape">
+                    <label class="method-option">
+                        <input type="radio" name="select-shape" value="rect" checked>
+                        <span>Rectangle</span>
+                    </label>
+                    <label class="method-option">
+                        <input type="radio" name="select-shape" value="lasso">
+                        <span>Lasso</span>
+                    </label>
+                </div>
                 <label>Selection size <span id="selection-size-label">0 x 0</span></label>
                 <div class="row-buttons">
                     <button id="selection-apply-btn" class="btn btn-small">Apply Move</button>
@@ -273,7 +283,9 @@
                     </div>
                     <label>Width <span id="defringe-width-label">1</span>px</label>
                     <input id="defringe-width" type="range" min="1" max="10" value="1">
+                    <div id="defringe-scope" class="hint compact-hint">Applies to the whole image. Make a selection with the Select tool to limit it.</div>
                     <button id="defringe-apply-btn" class="btn btn-small">Apply defringe</button>
+                    <button id="defringe-clear-selection-btn" class="btn btn-small" hidden>Clear selection</button>
                 </div>
             </div>
 

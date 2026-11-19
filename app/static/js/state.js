@@ -23,6 +23,8 @@ export const state = {
 
     cropRect: null,
     selectionRect: null,
+    selectionPath: null,    // lasso polygon (canvas coords) for a non-floating selection; null = rectangle
+    lassoPoints: null,      // in-progress lasso drag
     floatingSelection: null,
     selectionBackground: null,
     isMovingSelection: false,
