@@ -35,7 +35,7 @@ PixelForge is a standalone browser-based image markup and AI editing tool powere
 | Image description (auto-prompt) | `gemini-2.0-flash` |
 | Video generation (no audio) | `veo-2.0-generate-001` |
 | Video generation (with audio) | `veo-3.0-generate-001` |
-| Background removal | rembg (`u2net`, runs locally) |
+| Background removal | rembg, runs locally (`isnet-general-use` default; also `birefnet-general-lite`, `isnet-anime`, `u2net_human_seg`, `u2net`) |
 
 > **Note**: `gemini-3.1-flash-image-preview` and `gemini-3-pro-image-preview` are routed to the `global` Vertex AI endpoint automatically; only `gemini-2.5-flash-image` uses the regional endpoint.
 
@@ -185,4 +185,6 @@ Sessions are stored as JSON files (one per save), each containing the flattened 
 
 - **Region fill** — click an area to flood-fill it with transparency.
 - Enable **Edge detection** to better preserve object boundaries.
-- **AI removal** — sends the image to rembg (local neural network) to remove the background. The first run may take a minute while the model loads.
+- **AI removal** — sends the image to rembg (local neural network) to remove the background. With a selection, only the selected area is processed and changed.
+  - **Model**: General (ISNet, default), High quality (BiRefNet lite, slower), Illustration / anime, People, or Legacy (U2Net). Each model downloads on first use (~175–225 MB), so the first run with a model may take a minute. `docker-compose.yml` mounts `./models` to keep them across rebuilds.
+  - **Soft edges** turns on alpha matting (partial transparency for hair and fur; slower, not for pixel art). **Smooth mask** removes speckles and jagged edges.

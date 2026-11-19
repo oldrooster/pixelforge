@@ -6,7 +6,7 @@ import { canvas, ctx, dom } from "./dom.js";
 // Circular with layers.js — ES modules handle this correctly via live bindings.
 import { drawLayer, renderSelection, renderLayersPanel, pushUndo, updateHistoryButtons } from "./layers.js";
 // Circular with ui.js — same reason.
-import { getInpaintMaskMode, updateDefringeScope } from "./ui.js";
+import { getInpaintMaskMode, updateTransparencyScope } from "./ui.js";
 
 // ---------------------------------------------------------------------------
 // Zoom
@@ -67,6 +67,7 @@ export function activateCanvas(img) {
     dom.canvasWrap.hidden = false;
     dom.canvasArea.classList.add("has-image");
     dom.downloadBtn.disabled = false;
+    dom.copyBtn.disabled = false;
     dom.zoomControls.hidden = false;
     setZoom("fit");
 }
@@ -118,7 +119,7 @@ export function render() {
     }
 
     if (state.activeTool === "transparency") {
-        updateDefringeScope();
+        updateTransparencyScope();
     }
 
     if (

@@ -92,7 +92,8 @@ dom.transparencyMethodRadios.forEach(r => r.addEventListener("change", updateTra
 dom.defringeModeRadios.forEach(r => r.addEventListener("change", () => {
     dom.defringeColorRow.hidden = dom.defringeModeRadios.find(x => x.checked)?.value !== "color";
 }));
-dom.defringeClearSelectionBtn.addEventListener("click", () => { clearSelectionState(); render(); });
+[dom.defringeClearSelectionBtn, dom.transparencyAiClearSelectionBtn].forEach(btn =>
+    btn.addEventListener("click", () => { clearSelectionState(); render(); }));
 dom.defringeWidth.addEventListener("input", () => { dom.defringeWidthLabel.textContent = dom.defringeWidth.value; });
 dom.defringeApplyBtn.addEventListener("click", () => {
     const mode = dom.defringeModeRadios.find(r => r.checked)?.value ?? "erase";
@@ -188,6 +189,24 @@ dom.canvasWrap.addEventListener("wheel", e => {
 // AI buttons
 // ---------------------------------------------------------------------------
 dom.transparencyAiApplyBtn.addEventListener("click", () => runAiBackgroundRemoval());
+
+// Remember the AI removal options between visits.
+const REMBG_PREFS_KEY = "pixelforge.rembg";
+try {
+    const prefs = JSON.parse(localStorage.getItem(REMBG_PREFS_KEY) || "{}");
+    if ([...dom.rembgModel.options].some(o => o.value === prefs.model)) { dom.rembgModel.value = prefs.model; }
+    dom.rembgAlphaMatting.checked = !!prefs.alphaMatting;
+    dom.rembgPostProcess.checked = !!prefs.postProcess;
+} catch { /* storage unavailable or bad JSON */ }
+[dom.rembgModel, dom.rembgAlphaMatting, dom.rembgPostProcess].forEach(el => el.addEventListener("change", () => {
+    try {
+        localStorage.setItem(REMBG_PREFS_KEY, JSON.stringify({
+            model: dom.rembgModel.value,
+            alphaMatting: dom.rembgAlphaMatting.checked,
+            postProcess: dom.rembgPostProcess.checked,
+        }));
+    } catch { /* ignore */ }
+}));
 dom.aiGeneratePanelBtn.addEventListener("click", () => runVertexGenerate());
 dom.aiRefinePanelBtn.addEventListener("click", () => runVertexRefine());
 dom.aiInpaintBtn.addEventListener("click", () => runVertexInpaint());
@@ -270,6 +289,24 @@ dom.downloadBtn.addEventListener("click", async () => {
     } finally {
         dom.downloadBtn.disabled = false;
         dom.downloadBtn.textContent = "Download";
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Copy to clipboard: the same full-colour PNG as Download -> "PNG (full colour)".
+// ---------------------------------------------------------------------------
+dom.copyBtn.addEventListener("click", async () => {
+    if (!state.originalImage) { return; }
+    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+        showTopNotice("Clipboard images aren't available here (the page must be served over HTTPS or localhost).", "error", 6500);
+        return;
+    }
+    try {
+        // Pass the blob as a promise so Safari keeps the click's user activation.
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": flattenToBlob() })]);
+        showTopNotice("Image copied to clipboard.", "success", 2500);
+    } catch (err) {
+        showTopNotice("Copy failed: " + (err?.message ?? "clipboard unavailable."), "error", 6500);
     }
 });
 

@@ -3,7 +3,7 @@
 import { state } from "./state.js";
 import { dom } from "./dom.js";
 import { showTopNotice, updateTopNotice, setAiStatus, setAiButtonBusy, setVertexButtonsBusy, setVideoButtonBusy } from "./ui.js";
-import { flattenToBlob, activateCanvas, getActiveSelectionRect, clampRectToCanvas, createSelectionMaskBlob, createInpaintBrushMaskBlob, clearSelectionState, clearInpaintMask, replaceWithRasterCanvas } from "./canvas.js";
+import { flattenToBlob, activateCanvas, getActiveSelectionRect, clampRectToCanvas, buildCompositeCanvas, buildSelectionMask, dropFloatingSelection, createSelectionMaskBlob, createInpaintBrushMaskBlob, clearSelectionState, clearInpaintMask, replaceWithRasterCanvas } from "./canvas.js";
 import { appendThumbSlot, appendVideoThumbSlot, selectThumbSlot, saveCurrentThumbState, loadBase64AsImage, updateThumbDeleteBtn, applyBlobAsCanvas } from "./thumbs.js";
 
 // ---------------------------------------------------------------------------
@@ -283,11 +283,25 @@ export async function runAiBackgroundRemoval() {
     }, 6000);
 
     try {
-        const blob = await flattenToBlob();
+        // With a selection, send only its bounding box (so rembg focuses on the
+        // selected subject) and apply the result only inside the selection.
+        dropFloatingSelection();
+        const mask = buildSelectionMask();
+        const composite = buildCompositeCanvas();
+        const box = mask ? clampRectToCanvas(getActiveSelectionRect()) : { x: 0, y: 0, w: composite.width, h: composite.height };
+        const input = document.createElement("canvas");
+        input.width = box.w;
+        input.height = box.h;
+        input.getContext("2d").drawImage(composite, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+        const blob = await new Promise(resolve => input.toBlob(resolve, "image/png"));
+
         const formData = new FormData();
         formData.append("image", blob, "pixelforge_input.png");
+        formData.append("model", dom.rembgModel.value);
+        formData.append("alpha_matting", dom.rembgAlphaMatting.checked ? "true" : "false");
+        formData.append("post_process", dom.rembgPostProcess.checked ? "true" : "false");
 
-        setAiStatus("Uploading image to AI remover...", "running");
+        setAiStatus(mask ? "Uploading selection to AI remover..." : "Uploading image to AI remover...", "running");
         const response = await fetch("/api/remove-background", { method: "POST", body: formData });
 
         if (!response.ok) {
@@ -298,25 +312,41 @@ export async function runAiBackgroundRemoval() {
         }
 
         setAiStatus("Applying AI result...", "running");
-        const outBlob = await response.blob();
-        const url = URL.createObjectURL(outBlob);
-        await new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => {
-                const out = document.createElement("canvas");
-                out.width = img.width;
-                out.height = img.height;
-                out.getContext("2d").drawImage(img, 0, 0);
-                URL.revokeObjectURL(url);
-                replaceWithRasterCanvas(out, { keepSelection: true });
-                resolve();
-            };
-            img.onerror = () => {
-                URL.revokeObjectURL(url);
-                reject(new Error("Could not decode AI output image."));
-            };
-            img.src = url;
+        const result = await createImageBitmap(await response.blob()).catch(() => {
+            throw new Error("Could not decode AI output image.");
         });
+        if (!mask) {
+            const out = document.createElement("canvas");
+            out.width = result.width;
+            out.height = result.height;
+            out.getContext("2d").drawImage(result, 0, 0);
+            replaceWithRasterCanvas(out, { keepSelection: true });
+        } else {
+            if (result.width !== box.w || result.height !== box.h) {
+                throw new Error("AI output size did not match the selection.");
+            }
+            const rc = document.createElement("canvas");
+            rc.width = box.w;
+            rc.height = box.h;
+            const rctx = rc.getContext("2d");
+            rctx.drawImage(result, 0, 0);
+            const res = rctx.getImageData(0, 0, box.w, box.h).data;
+            const cctx = composite.getContext("2d");
+            const img = cctx.getImageData(0, 0, composite.width, composite.height);
+            const d = img.data;
+            const w = composite.width;
+            for (let y = 0; y < box.h; y++) {
+                for (let x = 0; x < box.w; x++) {
+                    const p = (y + box.y) * w + x + box.x;
+                    if (!mask[p]) { continue; }
+                    const ra = res[(y * box.w + x) * 4 + 3];
+                    if (ra < d[p * 4 + 3]) { d[p * 4 + 3] = ra; }
+                }
+            }
+            cctx.putImageData(img, 0, 0);
+            replaceWithRasterCanvas(composite, { keepSelection: true });
+        }
+        result.close();
 
         setAiStatus("Background removed successfully.", "success");
     } catch (err) {

@@ -48,7 +48,17 @@ def api_error(message: str, status: int = 400) -> tuple[Response, int]:
 # ---------------------------------------------------------------------------
 _rembg_lock = Lock()
 _rembg_remove = None
-_rembg_session = None
+_rembg_sessions: dict = {}  # model name -> session, created on first use
+
+# Models offered in the UI. Each is downloaded on first use into REMBG_HOME.
+REMBG_MODELS = (
+    "isnet-general-use",
+    "birefnet-general-lite",
+    "isnet-anime",
+    "u2net_human_seg",
+    "u2net",
+)
+REMBG_DEFAULT_MODEL = "isnet-general-use"
 
 # ---------------------------------------------------------------------------
 # Vertex AI credentials
@@ -298,23 +308,40 @@ def index() -> Response:
     return send_from_directory("static", "index.html")
 
 
+def _form_flag(name: str) -> bool:
+    """Read a boolean form field ("1", "true", "yes", "on" are true)."""
+    return (request.form.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 # ---------------------------------------------------------------------------
 # Route: background removal
 # ---------------------------------------------------------------------------
 @app.post("/api/remove-background")
 def remove_background() -> Response | tuple[Response, int]:
-    global _rembg_remove, _rembg_session
+    global _rembg_remove
+
+    model = (request.form.get("model") or REMBG_DEFAULT_MODEL).strip()
+    if model not in REMBG_MODELS:
+        return api_error(f"Unknown background removal model: {model}")
+    alpha_matting = _form_flag("alpha_matting")
+    post_process = _form_flag("post_process")
 
     try:
-        if _rembg_remove is None or _rembg_session is None:
+        session = _rembg_sessions.get(model)
+        if _rembg_remove is None or session is None:
             with _rembg_lock:
-                if _rembg_remove is None or _rembg_session is None:
-                    from rembg import new_session, remove
+                if _rembg_remove is None:
+                    from rembg import remove
 
                     _rembg_remove = remove
-                    _rembg_session = new_session("u2net")
+                session = _rembg_sessions.get(model)
+                if session is None:
+                    from rembg import new_session
+
+                    session = new_session(model)
+                    _rembg_sessions[model] = session
     except Exception as exc:
-        return api_error(f"rembg backend unavailable: {exc}", 503)
+        return api_error(f"rembg model '{model}' unavailable: {exc}", 503)
 
     file = request.files.get("image")
     if file is None:
@@ -326,7 +353,12 @@ def remove_background() -> Response | tuple[Response, int]:
         return api_error(str(exc))
 
     try:
-        output = _rembg_remove(data, session=_rembg_session)
+        output = _rembg_remove(
+            data,
+            session=session,
+            alpha_matting=alpha_matting,
+            post_process_mask=post_process,
+        )
     except Exception as exc:
         return api_error(f"AI background removal failed: {exc}", 500)
 
@@ -431,7 +463,7 @@ def export_indexed_png() -> Response | tuple[Response, int]:
         return api_error("colors must be an integer")
     if not 2 <= colors <= 256:
         return api_error("colors must be between 2 and 256")
-    dither = request.form.get("dither", "false").lower() in ("1", "true", "yes", "on")
+    dither = _form_flag("dither")
 
     try:
         output = _to_indexed_png(data, colors, dither)

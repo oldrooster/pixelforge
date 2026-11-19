@@ -4,3 +4,6 @@ delay_prompt.sh
 __pycache__/
 *.py[cod]
 sessions/
+
+# rembg model cache (docker-compose mount)
+models/

@@ -4,6 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     XDG_CACHE_HOME=/tmp/.cache \
     NUMBA_CACHE_DIR=/tmp/.cache/numba \
+    REMBG_HOME=/models \
     VERTEX_CREDENTIALS_PATH=/app/vertex.json
 
 WORKDIR /app

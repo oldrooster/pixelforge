@@ -9,13 +9,16 @@ services:
     restart: unless-stopped
     volumes:
       - ./vertex.json:/app/vertex.json
+      # rembg models (downloaded on first use, ~175-225 MB each) persist across rebuilds:
+      - ./models:/models
       # Uncomment to enable session persistence (stored on host at ./sessions):
       # - ./sessions:/app/sessions
     # Uncomment both blocks below to enable session persistence:
     # environment:
     #   SESSIONS_DIR: /app/sessions
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      # The slim Python image has no curl, so use Python (urlopen raises on non-2xx).
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=4)"]
       interval: 30s
       timeout: 5s
       retries: 3

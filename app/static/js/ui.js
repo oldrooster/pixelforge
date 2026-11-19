@@ -75,7 +75,7 @@ export function updateToolSettingsForActiveTool() {
         updateShapeFillVisibility();
     }
     if (state.activeTool === "transparency") {
-        updateDefringeScope();
+        updateTransparencyScope();
     }
 
     animateContextRefresh();
@@ -109,8 +109,8 @@ export function getSelectShape() {
     return dom.selectShapeRadios.find(r => r.checked)?.value ?? "rect";
 }
 
-// Tell the user whether Defringe applies to the whole image or just the selection.
-export function updateDefringeScope() {
+// Tell the user whether Defringe and AI removal apply to the whole image or just the selection.
+export function updateTransparencyScope() {
     const has = hasActiveSelection();
     let text = "Applies to the whole image. Make a selection with the Select tool to limit it.";
     if (has) {
@@ -118,8 +118,11 @@ export function updateDefringeScope() {
         const kind = getActiveSelectionPath() ? "lasso" : "rectangle";
         text = "Limited to the " + kind + " selection (" + Math.floor(rect.w) + " x " + Math.floor(rect.h) + ").";
     }
-    if (dom.defringeScope.textContent !== text) { dom.defringeScope.textContent = text; }
-    dom.defringeClearSelectionBtn.hidden = !has;
+    for (const [label, btn] of [[dom.defringeScope, dom.defringeClearSelectionBtn],
+                                [dom.transparencyAiScope, dom.transparencyAiClearSelectionBtn]]) {
+        if (label.textContent !== text) { label.textContent = text; }
+        btn.hidden = !has;
+    }
 }
 
 // ---------------------------------------------------------------------------

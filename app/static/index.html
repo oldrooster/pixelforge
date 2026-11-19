@@ -21,6 +21,7 @@
                 </select>
                 <button id="download-btn" class="btn btn-secondary" disabled>Download</button>
             </div>
+            <button id="copy-btn" class="btn btn-secondary" title="Copy the image to the clipboard as a full-colour PNG" disabled>Copy</button>
 
             <!-- Notification bell -->
             <div class="notif-bell-wrap" id="notif-bell-wrap">
@@ -255,8 +256,20 @@
                 </div>
 
                 <div id="transparency-ai-controls" hidden>
-                    <div class="hint compact-hint">Uses Python rembg to remove background from the current image.</div>
+                    <div class="hint compact-hint">Uses Python rembg to remove background from the current image. Each model downloads on first use.</div>
+                    <label for="rembg-model">Model</label>
+                    <select id="rembg-model" class="ai-input">
+                        <option value="isnet-general-use" selected>General (ISNet)</option>
+                        <option value="birefnet-general-lite">High quality (BiRefNet lite, slower)</option>
+                        <option value="isnet-anime">Illustration / anime</option>
+                        <option value="u2net_human_seg">People</option>
+                        <option value="u2net">Legacy (U2Net)</option>
+                    </select>
+                    <label title="Alpha matting: partial transparency for hair and fur. Slower; avoid for pixel art."><input id="rembg-alpha-matting" type="checkbox"> Soft edges (hair, fur)</label>
+                    <label title="Smooth the mask to remove speckles and jagged edges."><input id="rembg-post-process" type="checkbox"> Smooth mask</label>
+                    <div id="transparency-ai-scope" class="hint compact-hint">Applies to the whole image. Make a selection with the Select tool to limit it.</div>
                     <button id="transparency-ai-apply-btn" class="btn btn-small">Run AI background removal</button>
+                    <button id="transparency-ai-clear-selection-btn" class="btn btn-small" hidden>Clear selection</button>
                     <div id="transparency-ai-status" class="hint compact-hint ai-status">Idle.</div>
                 </div>
 
