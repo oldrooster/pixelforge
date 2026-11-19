@@ -36,7 +36,8 @@ async function extractErrorMessage(response, fallback) {
         const data = await response.json();
         if (data && data.error) { return data.error; }
     } catch (_) { /* response was not JSON */ }
-    return fallback;
+    // No JSON error usually means the server process died (e.g. out of memory) or a proxy timed out.
+    return fallback + " (HTTP " + response.status + (response.statusText ? " " + response.statusText : "") + ")";
 }
 
 // ---------------------------------------------------------------------------

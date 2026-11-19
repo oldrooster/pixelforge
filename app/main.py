@@ -336,9 +336,15 @@ def remove_background() -> Response | tuple[Response, int]:
                     _rembg_remove = remove
                 session = _rembg_sessions.get(model)
                 if session is None:
+                    import onnxruntime as ort
                     from rembg import new_session
 
-                    session = new_session(model)
+                    # Without the CPU memory arena, peak memory roughly halves
+                    # (BiRefNet lite on a 1600x1200 image: ~12 GB -> ~7 GB) at the same speed.
+                    opts = ort.SessionOptions()
+                    opts.enable_cpu_mem_arena = False
+                    opts.enable_mem_pattern = False
+                    session = new_session(model, sess_opts=opts)
                     _rembg_sessions[model] = session
     except Exception as exc:
         return api_error(f"rembg model '{model}' unavailable: {exc}", 503)
